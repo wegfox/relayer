@@ -238,19 +238,19 @@ func (c *Chain) UpgradeClients(dst *Chain, height int64) error {
 	}
 
 	// query proofs on counterparty
-	clientState, proofUpgradeClient, _, err := dst.QueryUpgradedClient(height)
+	csres, err := dst.QueryUpgradedClient(height)
 	if err != nil {
 		return err
 	}
 
-	consensusState, proofUpgradeConsensusState, _, err := dst.QueryUpgradedConsState(height)
+	consres, err := dst.QueryUpgradedConsState(height)
 	if err != nil {
 		return err
 	}
 
-	upgradeMsg := &clienttypes.MsgUpgradeClient{ClientId: c.PathEnd.ClientID, ClientState: clientState,
-		ConsensusState: consensusState, ProofUpgradeClient: proofUpgradeClient,
-		ProofUpgradeConsensusState: proofUpgradeConsensusState, Signer: c.MustGetAddress().String()}
+	upgradeMsg := &clienttypes.MsgUpgradeClient{ClientId: c.PathEnd.ClientID, ClientState: csres.ClientState,
+		ConsensusState: consres.ConsensusState, ProofUpgradeClient: csres.Proof,
+		ProofUpgradeConsensusState: consres.Proof, Signer: c.MustGetAddress().String()}
 
 	msgs := []sdk.Msg{
 		updateMsg,

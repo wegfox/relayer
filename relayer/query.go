@@ -457,32 +457,32 @@ func (c *Chain) QueryUnbondingPeriod() (time.Duration, error) {
 }
 
 // QueryUpgradedClient returns upgraded client info
-func (c *Chain) QueryUpgradedClient(height int64) (*codectypes.Any, []byte, clienttypes.Height, error) {
+func (c *Chain) QueryUpgradedClient(height int64) (*clienttypes.QueryClientStateResponse, error) {
 	req := upgradetypes.QueryCurrentPlanRequest{}
 
 	queryClient := upgradetypes.NewQueryClient(c.CLIContext(0))
 
 	res, err := queryClient.CurrentPlan(context.Background(), &req)
 	if err != nil {
-		return nil, nil, clienttypes.Height{}, err
+		return nil, err
 	}
 
 	if res == nil || res.Plan == nil || res.Plan.UpgradedClientState == nil {
-		return nil, nil, clienttypes.Height{},
+		return nil,
 			fmt.Errorf("upgraded client state plan does not exist at height %d", height)
 	}
 	client := res.Plan.UpgradedClientState
 
 	proof, proofHeight, err := c.QueryUpgradeProof(upgradetypes.UpgradedClientKey(height), uint64(height))
 	if err != nil {
-		return nil, nil, clienttypes.Height{}, err
+		return nil, err
 	}
 
-	return client, proof, proofHeight, nil
+	return &clienttypes.QueryClientStateResponse{client, proof, proofHeight}, nil
 }
 
 // QueryUpgradedConsState returns upgraded consensus state and height of client
-func (c *Chain) QueryUpgradedConsState(height int64) (*codectypes.Any, []byte, clienttypes.Height, error) {
+func (c *Chain) QueryUpgradedConsState(height int64) (*clienttypes.QueryConsensusStateResponse, error) {
 	req := upgradetypes.QueryUpgradedConsensusStateRequest{
 		LastHeight: height,
 	}
@@ -491,25 +491,26 @@ func (c *Chain) QueryUpgradedConsState(height int64) (*codectypes.Any, []byte, c
 
 	res, err := queryClient.UpgradedConsensusState(context.Background(), &req)
 	if err != nil {
-		return nil, nil, clienttypes.Height{}, err
+		return nil, err
 	}
 
 	if res == nil || res.UpgradedConsensusState == nil {
-		return nil, nil, clienttypes.Height{},
+		return nil,
 			fmt.Errorf("upgraded consensus state plan does not exist at height %d", height)
 	}
 	consState := res.UpgradedConsensusState
 
 	proof, proofHeight, err := c.QueryUpgradeProof(upgradetypes.UpgradedConsStateKey(height), uint64(height))
 	if err != nil {
-		return nil, nil, clienttypes.Height{}, err
+		return nil, err
 	}
 
-	return consState, proof, proofHeight, nil
+	return &clienttypes.QueryConsensusStateResponse{consState, proof, proofHeight}, nil
 }
 
 // QueryUpgradeProof performs an abci query with the given key and returns the proto encoded merkle proof
 // for the query and the height at which the proof will succeed on a tendermint verifier.
+// TODO: this will break with new query proof stuffs
 func (c *Chain) QueryUpgradeProof(key []byte, height uint64) ([]byte, clienttypes.Height, error) {
 	res, err := c.QueryABCI(abci.RequestQuery{
 		Path:   "store/upgrade/key",
