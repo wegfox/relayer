@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/client/flags"
 	"github.com/cosmos/cosmos-sdk/x/auth/types"
 	clienttypes "github.com/cosmos/cosmos-sdk/x/ibc/core/02-client/types"
@@ -385,18 +386,18 @@ $ %s query clients ibc-2 --offset 2 --limit 30`,
 			if err != nil {
 				return err
 			}
-
-			offset, err := cmd.Flags().GetUint64(flags.FlagOffset)
+			debug, err := cmd.Flags().GetBool("debug")
 			if err != nil {
 				return err
 			}
-
-			limit, err := cmd.Flags().GetUint64(flags.FlagLimit)
+			if debug {
+				chain.Log("this is a debug log")
+			}
+			pagereq, err := client.ReadPageRequest(cmd.Flags())
 			if err != nil {
 				return err
 			}
-
-			res, err := chain.QueryClients(offset, limit)
+			res, err := chain.QueryClientsPageReq(pagereq)
 			if err != nil {
 				return err
 			}
@@ -405,7 +406,8 @@ $ %s query clients ibc-2 --offset 2 --limit 30`,
 		},
 	}
 
-	return paginationFlags(cmd)
+	flags.AddPaginationFlagsToCmd(cmd, "client states")
+	return cmd
 }
 
 func queryValSetAtHeightCmd() *cobra.Command {

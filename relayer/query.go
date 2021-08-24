@@ -204,6 +204,24 @@ func (c *Chain) QueryClients(offset, limit uint64) (*clienttypes.QueryClientStat
 	})
 }
 
+// QueryClientsPageReq queries all the clients!
+// All queries that take page requests should have function signatures like this now
+func (c *Chain) QueryClientsPageReq(pagereq *querytypes.PageRequest) (*clienttypes.QueryClientStatesResponse, error) {
+	qc := clienttypes.NewQueryClient(c.CLIContext(0))
+	return qc.ClientStates(context.Background(), &clienttypes.QueryClientStatesRequest{
+		Pagination: pagereq,
+	})
+}
+
+func DefaultPageRequest() *querytypes.PageRequest {
+	return &querytypes.PageRequest{
+		Key:        []byte("1"),
+		Offset:     0,
+		Limit:      1000,
+		CountTotal: true,
+	}
+}
+
 // ////////////////////////////
 //  ICS 03 -> CONNECTIONS   //
 // ////////////////////////////

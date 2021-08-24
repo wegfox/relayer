@@ -84,6 +84,8 @@ $ %s pth gen ibc-0 ibc-1 demo-path --unordered false --version ics20-2`, appName
 
 			// see if there are existing clients that can be reused
 			eg.Go(func() error {
+				// this should paginate, is a huge cause of hanging
+				// should
 				srcClients, err = c[src].QueryClients(0, 1000)
 				return err
 			})
