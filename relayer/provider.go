@@ -17,7 +17,25 @@ type Provider interface {
 	DataProvider
 }
 
+// type TxProvider interface {
+// 	CreateClient()
+// 	SubmitMisbehavior()
+// 	UpdateClient()
+// 	ConnectionOpenInit()
+// 	ConnectionOpenTry()
+// 	ConnectionOpenAck()
+// 	ConnectionOpenConfirm()
+// 	ChannelOpenInit()
+// 	ChannelOpenTry()
+// 	ChannelOpenAck()
+// 	ChannelOpenConfirm()
+// 	ChannelCloseInit()
+// 	ChannelCloseConfirm()
+// }
+
 type ProofProvider interface {
+	Init() error
+
 	// chain
 	QueryTx(hashHex string) (*ctypes.ResultTx, error)
 	QueryTxs(height uint64, events []string) ([]*ctypes.ResultTx, error)
@@ -40,7 +58,9 @@ type ProofProvider interface {
 }
 
 type DataProvider interface {
-	// NOTE: collections in the above interface should return _all_ of the given object.
+	Init() error
+
+	// NOTE: collections in this interface should return _all_ of the given object.
 	// this should be done in a performant way with the idea in mind that the dataset could
 	// potentially be very large and this may take a large number of requests
 
