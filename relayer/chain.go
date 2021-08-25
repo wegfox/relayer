@@ -324,7 +324,8 @@ func (c *Chain) SendMsgs(msgs []sdk.Msg) (*sdk.TxResponse, bool, error) {
 	// Broadcast those bytes
 	res, err := ctx.BroadcastTx(txBytes)
 	if err != nil {
-		return nil, false, err
+		h, _ := c.QueryLatestHeight()
+		return nil, false, fmt.Errorf("[%s]@{%d} err: %w", c.ChainID, h, err)
 	}
 
 	// transaction was executed, log the success or failure using the tx response code

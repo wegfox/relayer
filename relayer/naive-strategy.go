@@ -513,9 +513,17 @@ func (nrs *NaiveStrategy) RelayPackets(src, dst *Chain, sp *RelaySequences) erro
 	}
 
 	// add messages for sequences on src
+	srch, err := src.QueryLatestHeight()
+	if err != nil {
+		return err
+	}
+	dsth, err := dst.QueryLatestHeight()
+	if err != nil {
+		return err
+	}
 	for _, seq := range sp.Src {
 		// Query src for the sequence number to get type of packet
-		recvMsgs, timeoutMsgs, err := relayPacketFromSequence(src, dst, seq)
+		recvMsgs, timeoutMsgs, err := relayPacketFromSequence(src, dst, seq, srch)
 		if err != nil {
 			return err
 		}
@@ -534,7 +542,7 @@ func (nrs *NaiveStrategy) RelayPackets(src, dst *Chain, sp *RelaySequences) erro
 	// add messages for sequences on dst
 	for _, seq := range sp.Dst {
 		// Query dst for the sequence number to get type of packet
-		recvMsgs, timeoutMsgs, err := relayPacketFromSequence(dst, src, seq)
+		recvMsgs, timeoutMsgs, err := relayPacketFromSequence(dst, src, seq, dsth)
 		if err != nil {
 			return err
 		}
@@ -583,6 +591,8 @@ func (nrs *NaiveStrategy) RelayPackets(src, dst *Chain, sp *RelaySequences) erro
 		if len(msgs.Src) > 1 {
 			src.logPacketsRelayed(dst, len(msgs.Src)-1)
 		}
+	} else {
+		return fmt.Errorf("failed to relay packets")
 	}
 
 	return nil
@@ -590,8 +600,8 @@ func (nrs *NaiveStrategy) RelayPackets(src, dst *Chain, sp *RelaySequences) erro
 
 // relayPacketFromSequence relays a packet with a given seq on src
 // and returns recvPacket msgs, timeoutPacketmsgs and error
-func relayPacketFromSequence(src, dst *Chain, seq uint64) ([]sdk.Msg, []sdk.Msg, error) {
-	txs, err := src.QueryTxs(src.MustGetLatestLightHeight(), 1, 1000, rcvPacketQuery(src.PathEnd.ChannelID, int(seq)))
+func relayPacketFromSequence(src, dst *Chain, seq uint64, srch int64) ([]sdk.Msg, []sdk.Msg, error) {
+	txs, err := src.QueryTxs(uint64(srch), 1, 1000, rcvPacketQuery(src.PathEnd.ChannelID, int(seq)))
 	switch {
 	case err != nil:
 		return nil, nil, err

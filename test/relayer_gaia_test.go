@@ -63,21 +63,7 @@ func TestGaiaToGaiaStreamingRelayer(t *testing.T) {
 	testChannelPair(t, src, dst)
 
 	// send a couple of transfers to the queue on src and dst
-	var eg errgroup.Group
-	eg.Go(func() error {
-		return src.SendTransferMsg(dst, testCoin, dst.MustGetAddress().String(), 0, 0)
-	})
-	eg.Go(func() error {
-		return dst.SendTransferMsg(src, testCoin, src.MustGetAddress().String(), 0, 0)
-	})
-	require.NoError(t, eg.Wait())
-	eg.Go(func() error {
-		return src.SendTransferMsg(dst, testCoin, dst.MustGetAddress().String(), 0, 0)
-	})
-	eg.Go(func() error {
-		return dst.SendTransferMsg(src, testCoin, src.MustGetAddress().String(), 0, 0)
-	})
-	require.NoError(t, eg.Wait())
+	sendTwoTransfersEachChain(t, src, dst, testCoin)
 
 	strat := cmd.SetStrategyDefaultOptions(path.MustGetStrategy())
 
@@ -91,21 +77,10 @@ func TestGaiaToGaiaStreamingRelayer(t *testing.T) {
 	// clear the queue
 	require.NoError(t, strat.RelayPackets(src, dst, seq))
 
+	ensureCleanQueues(t, src, dst, strat)
+
 	// send a couple more transfers to the queue on src and dst
-	eg.Go(func() error {
-		return src.SendTransferMsg(dst, testCoin, dst.MustGetAddress().String(), 0, 0)
-	})
-	eg.Go(func() error {
-		return dst.SendTransferMsg(src, testCoin, src.MustGetAddress().String(), 0, 0)
-	})
-	require.NoError(t, eg.Wait())
-	eg.Go(func() error {
-		return src.SendTransferMsg(dst, testCoin, dst.MustGetAddress().String(), 0, 0)
-	})
-	eg.Go(func() error {
-		return dst.SendTransferMsg(src, testCoin, src.MustGetAddress().String(), 0, 0)
-	})
-	require.NoError(t, eg.Wait())
+	sendTwoTransfersEachChain(t, src, dst, testCoin)
 
 	// start the relayer process in it's own goroutine
 	rlyDone, err := relayer.RunStrategy(src, dst, path.MustGetStrategy())
@@ -116,40 +91,13 @@ func TestGaiaToGaiaStreamingRelayer(t *testing.T) {
 	require.NoError(t, dst.WaitForNBlocks(1))
 
 	// send those tokens from dst back to dst and src back to src
-	require.NoError(t, src.SendTransferMsg(dst, twoTestCoin, dst.MustGetAddress().String(), 0, 0))
-	require.NoError(t, dst.SendTransferMsg(src, twoTestCoin, src.MustGetAddress().String(), 0, 0))
+	sendTwoTransfersEachChain(t, src, dst, twoTestCoin)
 
-	// wait for packet processing
-	require.NoError(t, retry.Do(func() error {
-		seq, err := strat.UnrelayedSequences(src, dst)
-		if err != nil {
-			return err
-		}
-		if len(seq.Src) > 0 {
-			return fmt.Errorf("[%s] unrelayed packets %v", src.ChainID, seq.Src)
-		}
-		if len(seq.Dst) > 0 {
-			return fmt.Errorf("[%s] unrelayed packets %v", src.ChainID, seq.Dst)
-		}
-		return nil
-	}))
-
-	require.NoError(t, dst.WaitForNBlocks(12))
+	// wait for the queues to clear
+	ensureCleanQueues(t, src, dst, strat)
 
 	// kill relayer routine
 	rlyDone()
-
-	srch, err := src.QueryLatestHeight()
-	require.NoError(t, err)
-	dsth, err := dst.QueryLatestHeight()
-	require.NoError(t, err)
-	srcr, err := src.QueryNextSeqRecv(srch)
-	require.NoError(t, err)
-	dstr, err := dst.QueryNextSeqRecv(dsth)
-	require.NoError(t, err)
-
-	require.Equal(t, uint64(4), srcr.NextSequenceReceive)
-	require.Equal(t, uint64(4), dstr.NextSequenceReceive)
 
 	// check balance on src against expected
 	srcGot, err := src.QueryBalance(src.Key)
@@ -160,6 +108,40 @@ func TestGaiaToGaiaStreamingRelayer(t *testing.T) {
 	dstGot, err := dst.QueryBalance(dst.Key)
 	require.NoError(t, err)
 	require.Equal(t, dstExpected.AmountOf(testDenom).Int64()-4000, dstGot.AmountOf(testDenom).Int64())
+}
+
+func ensureCleanQueues(t *testing.T, src, dst *relayer.Chain, strat relayer.Strategy) {
+	// wait for packet processing
+	require.NoError(t, retry.Do(func() error {
+		seq, err := strat.UnrelayedSequences(src, dst)
+		switch {
+		case err != nil:
+			return err
+		case len(seq.Src) > 0 || len(seq.Dst) > 0:
+			return fmt.Errorf("unrelayed packets [%s]{%v} and [%s]{%v}", src.ChainID, seq.Src, dst.ChainID, seq.Dst)
+		default:
+			return nil
+		}
+	}))
+
+}
+
+func sendTwoTransfersEachChain(t *testing.T, src, dst *relayer.Chain, amount sdk.Coin) {
+	var eg errgroup.Group
+	eg.Go(func() error {
+		return src.SendTransferMsg(dst, amount, dst.MustGetAddress().String(), 0, 0)
+	})
+	eg.Go(func() error {
+		return dst.SendTransferMsg(src, amount, src.MustGetAddress().String(), 0, 0)
+	})
+	require.NoError(t, eg.Wait())
+	eg.Go(func() error {
+		return src.SendTransferMsg(dst, amount, dst.MustGetAddress().String(), 0, 0)
+	})
+	eg.Go(func() error {
+		return dst.SendTransferMsg(src, amount, src.MustGetAddress().String(), 0, 0)
+	})
+	require.NoError(t, eg.Wait())
 }
 
 func TestGaiaReuseIdentifiers(t *testing.T) {
