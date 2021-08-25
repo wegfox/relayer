@@ -205,7 +205,7 @@ func (c *Chain) QueryClientsPageReq(pagereq *querytypes.PageRequest) (*clienttyp
 
 func DefaultPageRequest() *querytypes.PageRequest {
 	return &querytypes.PageRequest{
-		Key:        []byte("1"),
+		Key:        []byte(""),
 		Offset:     0,
 		Limit:      1000,
 		CountTotal: true,
