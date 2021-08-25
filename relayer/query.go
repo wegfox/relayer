@@ -58,11 +58,11 @@ func (c *Chain) QueryBalance(keyName string) (sdk.Coins, error) {
 		addr = info.GetAddress()
 		done()
 	}
-	return c.QueryBalanceWithAddress(addr.String())
+	return c.QueryBalanceWithAddress(DefaultPageRequest(), addr.String())
 }
 
 // QueryBalanceWithAddress returns the amount of coins in the relayer account with address as input
-func (c *Chain) QueryBalanceWithAddress(address string) (sdk.Coins, error) {
+func (c *Chain) QueryBalanceWithAddress(pagereq *querytypes.PageRequest, address string) (sdk.Coins, error) {
 	done := c.UseSDKContext()
 	addr, err := sdk.AccAddressFromBech32(address)
 	done()
@@ -70,12 +70,7 @@ func (c *Chain) QueryBalanceWithAddress(address string) (sdk.Coins, error) {
 		return nil, err
 	}
 
-	params := bankTypes.NewQueryAllBalancesRequest(addr, &querytypes.PageRequest{
-		Key:        []byte(""),
-		Offset:     0,
-		Limit:      1000,
-		CountTotal: true,
-	})
+	params := bankTypes.NewQueryAllBalancesRequest(addr, pagereq)
 
 	queryClient := bankTypes.NewQueryClient(c.CLIContext(0))
 
@@ -192,15 +187,10 @@ func QueryClientStatePair(
 }
 
 // QueryClients queries all the clients!
-func (c *Chain) QueryClients(offset, limit uint64) (*clienttypes.QueryClientStatesResponse, error) {
+func (c *Chain) QueryClients(pagereq *querytypes.PageRequest) (*clienttypes.QueryClientStatesResponse, error) {
 	qc := clienttypes.NewQueryClient(c.CLIContext(0))
 	return qc.ClientStates(context.Background(), &clienttypes.QueryClientStatesRequest{
-		Pagination: &querytypes.PageRequest{
-			Key:        []byte(""),
-			Offset:     offset,
-			Limit:      limit,
-			CountTotal: true,
-		},
+		Pagination: pagereq,
 	})
 }
 
@@ -215,7 +205,7 @@ func (c *Chain) QueryClientsPageReq(pagereq *querytypes.PageRequest) (*clienttyp
 
 func DefaultPageRequest() *querytypes.PageRequest {
 	return &querytypes.PageRequest{
-		Key:        []byte("1"),
+		Key:        []byte(""),
 		Offset:     0,
 		Limit:      1000,
 		CountTotal: true,
@@ -228,15 +218,10 @@ func DefaultPageRequest() *querytypes.PageRequest {
 
 // QueryConnections gets any connections on a chain
 func (c *Chain) QueryConnections(
-	offset, limit uint64) (conns *conntypes.QueryConnectionsResponse, err error) {
+	pagereq *querytypes.PageRequest) (conns *conntypes.QueryConnectionsResponse, err error) {
 	qc := conntypes.NewQueryClient(c.CLIContext(0))
 	res, err := qc.Connections(context.Background(), &conntypes.QueryConnectionsRequest{
-		Pagination: &querytypes.PageRequest{
-			Key:        []byte(""),
-			Offset:     offset,
-			Limit:      limit,
-			CountTotal: true,
-		},
+		Pagination: pagereq,
 	})
 	return res, err
 }
@@ -298,16 +283,11 @@ func QueryConnectionPair(
 // QueryConnectionChannels queries the channels associated with a connection
 func (c *Chain) QueryConnectionChannels(
 	connectionID string,
-	offset, limit uint64) (*chantypes.QueryConnectionChannelsResponse, error) {
+	pagereq *querytypes.PageRequest) (*chantypes.QueryConnectionChannelsResponse, error) {
 	qc := chantypes.NewQueryClient(c.CLIContext(0))
 	return qc.ConnectionChannels(context.Background(), &chantypes.QueryConnectionChannelsRequest{
 		Connection: connectionID,
-		Pagination: &querytypes.PageRequest{
-			Key:        []byte(""),
-			Offset:     offset,
-			Limit:      limit,
-			CountTotal: true,
-		},
+		Pagination: pagereq,
 	})
 }
 
@@ -353,15 +333,10 @@ func QueryChannelPair(src, dst *Chain, srcH, dstH int64) (srcChan, dstChan *chan
 }
 
 // QueryChannels returns all the channels that are registered on a chain
-func (c *Chain) QueryChannels(offset, limit uint64) (*chantypes.QueryChannelsResponse, error) {
+func (c *Chain) QueryChannels(pagereq *querytypes.PageRequest) (*chantypes.QueryChannelsResponse, error) {
 	qc := chantypes.NewQueryClient(c.CLIContext(0))
 	res, err := qc.Channels(context.Background(), &chantypes.QueryChannelsRequest{
-		Pagination: &querytypes.PageRequest{
-			Key:        []byte(""),
-			Offset:     offset,
-			Limit:      limit,
-			CountTotal: true,
-		},
+		Pagination: pagereq,
 	})
 	return res, err
 }
@@ -388,15 +363,10 @@ func (c *Chain) QueryDenomTrace(denom string) (*transfertypes.QueryDenomTraceRes
 }
 
 // QueryDenomTraces returns all the denom traces from a given chain
-func (c *Chain) QueryDenomTraces(offset, limit uint64, height int64) (*transfertypes.QueryDenomTracesResponse, error) {
+func (c *Chain) QueryDenomTraces(pagereq *querytypes.PageRequest, height int64) (*transfertypes.QueryDenomTracesResponse, error) {
 	return transfertypes.NewQueryClient(c.CLIContext(height)).DenomTraces(context.Background(),
 		&transfertypes.QueryDenomTracesRequest{
-			Pagination: &querytypes.PageRequest{
-				Key:        []byte(""),
-				Offset:     offset,
-				Limit:      limit,
-				CountTotal: true,
-			},
+			Pagination: pagereq,
 		})
 }
 
@@ -604,32 +574,24 @@ func (c *Chain) QueryPacketReceipt(height int64, seq uint64) (recRes *chantypes.
 }
 
 // QueryPacketCommitments returns an array of packet commitments
-func (c *Chain) QueryPacketCommitments(
-	offset, limit, height uint64) (comRes *chantypes.QueryPacketCommitmentsResponse, err error) {
+func (c *Chain) QueryPacketCommitments(pagereq *querytypes.PageRequest,
+	height uint64) (comRes *chantypes.QueryPacketCommitmentsResponse, err error) {
 	qc := chantypes.NewQueryClient(c.CLIContext(int64(height)))
 	return qc.PacketCommitments(context.Background(), &chantypes.QueryPacketCommitmentsRequest{
-		PortId:    c.PathEnd.PortID,
-		ChannelId: c.PathEnd.ChannelID,
-		Pagination: &querytypes.PageRequest{
-			Offset:     offset,
-			Limit:      limit,
-			CountTotal: true,
-		},
+		PortId:     c.PathEnd.PortID,
+		ChannelId:  c.PathEnd.ChannelID,
+		Pagination: pagereq,
 	})
 }
 
 // QueryPacketAcknowledgements returns an array of packet acks
-func (c *Chain) QueryPacketAcknowledgements(offset, limit,
+func (c *Chain) QueryPacketAcknowledgements(pagereq *querytypes.PageRequest,
 	height uint64) (comRes *chantypes.QueryPacketAcknowledgementsResponse, err error) {
 	qc := chantypes.NewQueryClient(c.CLIContext(int64(height)))
 	return qc.PacketAcknowledgements(context.Background(), &chantypes.QueryPacketAcknowledgementsRequest{
-		PortId:    c.PathEnd.PortID,
-		ChannelId: c.PathEnd.ChannelID,
-		Pagination: &querytypes.PageRequest{
-			Offset:     offset,
-			Limit:      limit,
-			CountTotal: true,
-		},
+		PortId:     c.PathEnd.PortID,
+		ChannelId:  c.PathEnd.ChannelID,
+		Pagination: pagereq,
 	})
 }
 

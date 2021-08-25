@@ -73,7 +73,12 @@ $ %s q ibc-denoms ibc-0`,
 				return err
 			}
 
-			res, err := chain.QueryDenomTraces(0, 1000, h)
+			pagereq, err := client.ReadPageRequest(cmd.Flags())
+			if err != nil {
+				return err
+			}
+
+			res, err := chain.QueryDenomTraces(pagereq, h)
 			if err != nil {
 				return err
 			}
@@ -82,6 +87,7 @@ $ %s q ibc-denoms ibc-0`,
 		},
 	}
 
+	flags.AddPaginationFlagsToCmd(cmd, "IBC denominations")
 	return cmd
 }
 
@@ -386,6 +392,7 @@ $ %s query clients ibc-2 --offset 2 --limit 30`,
 			if err != nil {
 				return err
 			}
+			// TODO pull this out
 			debug, err := cmd.Flags().GetBool("debug")
 			if err != nil {
 				return err
@@ -463,17 +470,12 @@ $ %s q conns ibc-1`,
 				return err
 			}
 
-			page, err := cmd.Flags().GetUint64(flags.FlagOffset)
+			pagereq, err := client.ReadPageRequest(cmd.Flags())
 			if err != nil {
 				return err
 			}
 
-			limit, err := cmd.Flags().GetUint64(flags.FlagLimit)
-			if err != nil {
-				return err
-			}
-
-			res, err := chain.QueryConnections(page, limit)
+			res, err := chain.QueryConnections(pagereq)
 			if err != nil {
 				return err
 			}
@@ -482,7 +484,8 @@ $ %s q conns ibc-1`,
 		},
 	}
 
-	return paginationFlags(cmd)
+	flags.AddPaginationFlagsToCmd(cmd, "connections on a network")
+	return cmd
 }
 
 func queryConnectionsUsingClient() *cobra.Command {
@@ -587,17 +590,12 @@ $ %s query connection-channels ibc-2 ibcconnection2 --offset 2 --limit 30`,
 				return err
 			}
 
-			page, err := cmd.Flags().GetUint64(flags.FlagOffset)
+			pagereq, err := client.ReadPageRequest(cmd.Flags())
 			if err != nil {
 				return err
 			}
 
-			limit, err := cmd.Flags().GetUint64(flags.FlagLimit)
-			if err != nil {
-				return err
-			}
-
-			chans, err := chain.QueryConnectionChannels(args[1], page, limit)
+			chans, err := chain.QueryConnectionChannels(args[1], pagereq)
 			if err != nil {
 				return err
 			}
@@ -606,7 +604,8 @@ $ %s query connection-channels ibc-2 ibcconnection2 --offset 2 --limit 30`,
 		},
 	}
 
-	return paginationFlags(cmd)
+	flags.AddPaginationFlagsToCmd(cmd, "connection channels")
+	return cmd
 }
 
 func queryChannel() *cobra.Command {
@@ -669,17 +668,12 @@ $ %s query channels ibc-2 --offset 2 --limit 30`,
 				return err
 			}
 
-			page, err := cmd.Flags().GetUint64(flags.FlagOffset)
+			pagereq, err := client.ReadPageRequest(cmd.Flags())
 			if err != nil {
 				return err
 			}
 
-			limit, err := cmd.Flags().GetUint64(flags.FlagLimit)
-			if err != nil {
-				return err
-			}
-
-			res, err := chain.QueryChannels(page, limit)
+			res, err := chain.QueryChannels(pagereq)
 			if err != nil {
 				return err
 			}
@@ -688,7 +682,8 @@ $ %s query channels ibc-2 --offset 2 --limit 30`,
 		},
 	}
 
-	return paginationFlags(cmd)
+	flags.AddPaginationFlagsToCmd(cmd, "client states")
+	return cmd
 }
 
 func queryPacketCommitment() *cobra.Command {

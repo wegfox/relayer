@@ -13,7 +13,7 @@ import (
 
 // QueryBalance is a helper function for query balance
 func QueryBalance(chain *relayer.Chain, address string, showDenoms bool) (sdk.Coins, error) {
-	coins, err := chain.QueryBalanceWithAddress(address)
+	coins, err := chain.QueryBalanceWithAddress(relayer.DefaultPageRequest(), address)
 	if err != nil {
 		return nil, err
 	}
@@ -27,7 +27,7 @@ func QueryBalance(chain *relayer.Chain, address string, showDenoms bool) (sdk.Co
 		return nil, err
 	}
 
-	dts, err := chain.QueryDenomTraces(0, 1000, h)
+	dts, err := chain.QueryDenomTraces(relayer.DefaultPageRequest(), h)
 	if err != nil {
 		return nil, err
 	}

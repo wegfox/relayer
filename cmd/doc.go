@@ -447,12 +447,6 @@ type valSetResWrapper struct {
 //   400: errorResponse
 //   500: errorResponse
 
-// swagger:parameters queryTxs
-type queryTxsParamsWrapper struct {
-	// in:body
-	Body txsRequest `json:"body" yaml:"body"`
-}
-
 // swagger:response txsResponse
 type txsResWrapper struct {
 	// in:body

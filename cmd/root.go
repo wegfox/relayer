@@ -91,7 +91,6 @@ NOTE: Most of the commands have aliases that make typing them much quicker (i.e.
 		queryCmd(),
 		startCmd(),
 		flags.LineBreak,
-		getAPICmd(),
 		flags.LineBreak,
 		devCommand(),
 		testnetsCmd(),
