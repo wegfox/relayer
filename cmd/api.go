@@ -410,13 +410,14 @@ func QueryClientsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	offset, limit, err := helpers.ParsePaginationParams(r)
-	if err != nil {
-		helpers.WriteErrorResponse(http.StatusBadRequest, err, w)
-		return
-	}
+	// TODO figure out PageRequest.Key and possibly add these back
+	//offset, limit, err := helpers.ParsePaginationParams(r)
+	//if err != nil {
+	//	helpers.WriteErrorResponse(http.StatusBadRequest, err, w)
+	//	return
+	//}
 
-	res, err := chain.QueryClients(offset, limit)
+	res, err := chain.QueryClients(relayer.DefaultPageRequest())
 	if err != nil {
 		helpers.WriteErrorResponse(http.StatusInternalServerError, err, w)
 		return
@@ -461,13 +462,13 @@ func QueryConnectionsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	offset, limit, err := helpers.ParsePaginationParams(r)
-	if err != nil {
-		helpers.WriteErrorResponse(http.StatusBadRequest, err, w)
-		return
-	}
+	//offset, limit, err := helpers.ParsePaginationParams(r)
+	//if err != nil {
+	//	helpers.WriteErrorResponse(http.StatusBadRequest, err, w)
+	//	return
+	//}
 
-	res, err := chain.QueryConnections(offset, limit)
+	res, err := chain.QueryConnections(relayer.DefaultPageRequest())
 	if err != nil {
 		helpers.WriteErrorResponse(http.StatusInternalServerError, err, w)
 		return
@@ -540,13 +541,14 @@ func QueryChannelsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	offset, limit, err := helpers.ParsePaginationParams(r)
-	if err != nil {
-		helpers.WriteErrorResponse(http.StatusBadRequest, err, w)
-		return
-	}
+	// TODO figure out PageRequest.Key and possibly add these back
+	//offset, limit, err := helpers.ParsePaginationParams(r)
+	//if err != nil {
+	//	helpers.WriteErrorResponse(http.StatusBadRequest, err, w)
+	//	return
+	//}
 
-	res, err := chain.QueryChannels(offset, limit)
+	res, err := chain.QueryChannels(relayer.DefaultPageRequest())
 	if err != nil {
 		helpers.WriteErrorResponse(http.StatusInternalServerError, err, w)
 		return
@@ -568,13 +570,14 @@ func QueryConnectionChannelsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	offset, limit, err := helpers.ParsePaginationParams(r)
-	if err != nil {
-		helpers.WriteErrorResponse(http.StatusInternalServerError, err, w)
-		return
-	}
+	// TODO figure out PageRequest.Key and possibly add these back
+	//offset, limit, err := helpers.ParsePaginationParams(r)
+	//if err != nil {
+	//	helpers.WriteErrorResponse(http.StatusInternalServerError, err, w)
+	//	return
+	//}
 
-	res, err := chain.QueryConnectionChannels(vars["conn-id"], offset, limit)
+	res, err := chain.QueryConnectionChannels(vars["conn-id"], relayer.DefaultPageRequest())
 	if err != nil {
 		helpers.WriteErrorResponse(http.StatusInternalServerError, err, w)
 		return
@@ -597,7 +600,8 @@ func QueryIBCDenomsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	res, err := chain.QueryDenomTraces(0, 1000, h)
+	// TODO possibly replace these default page reqs later?
+	res, err := chain.QueryDenomTraces(relayer.DefaultPageRequest(), h)
 	if err != nil {
 		helpers.WriteErrorResponse(http.StatusInternalServerError, err, w)
 		return
