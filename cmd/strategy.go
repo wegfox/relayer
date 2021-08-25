@@ -42,3 +42,14 @@ func GetStrategyWithOptions(cmd *cobra.Command, strategy relayer.Strategy) (rela
 		return strategy, nil
 	}
 }
+
+func SetStrategyDefaultOptions(strategy relayer.Strategy) relayer.Strategy {
+	switch strategyType := strategy.(type) {
+	case *relayer.NaiveStrategy:
+		strategyType.MaxTxSize = 2 * MB
+		strategyType.MaxMsgLength = 5
+		return strategyType
+	default:
+		return strategy
+	}
+}

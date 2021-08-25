@@ -1,14 +1,17 @@
 package test
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
+	"github.com/avast/retry-go"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	clienttypes "github.com/cosmos/cosmos-sdk/x/ibc/core/02-client/types"
 	ibctmtypes "github.com/cosmos/cosmos-sdk/x/ibc/light-clients/07-tendermint/types"
 	ibctesting "github.com/cosmos/cosmos-sdk/x/ibc/testing"
 	ibctestingmock "github.com/cosmos/cosmos-sdk/x/ibc/testing/mock"
+	"github.com/cosmos/relayer/cmd"
 	"github.com/cosmos/relayer/relayer"
 	"github.com/stretchr/testify/require"
 	"github.com/tendermint/tendermint/crypto/tmhash"
@@ -16,6 +19,7 @@ import (
 	tmprotoversion "github.com/tendermint/tendermint/proto/tendermint/version"
 	tmtypes "github.com/tendermint/tendermint/types"
 	tmversion "github.com/tendermint/tendermint/version"
+	"golang.org/x/sync/errgroup"
 )
 
 var (
@@ -58,16 +62,50 @@ func TestGaiaToGaiaStreamingRelayer(t *testing.T) {
 	require.NoError(t, err)
 	testChannelPair(t, src, dst)
 
-	// send a couple of transfers to the queue on src
-	require.NoError(t, src.SendTransferMsg(dst, testCoin, dst.MustGetAddress().String(), 0, 0))
-	require.NoError(t, src.SendTransferMsg(dst, testCoin, dst.MustGetAddress().String(), 0, 0))
+	// send a couple of transfers to the queue on src and dst
+	var eg errgroup.Group
+	eg.Go(func() error {
+		return src.SendTransferMsg(dst, testCoin, dst.MustGetAddress().String(), 0, 0)
+	})
+	eg.Go(func() error {
+		return dst.SendTransferMsg(src, testCoin, src.MustGetAddress().String(), 0, 0)
+	})
+	require.NoError(t, eg.Wait())
+	eg.Go(func() error {
+		return src.SendTransferMsg(dst, testCoin, dst.MustGetAddress().String(), 0, 0)
+	})
+	eg.Go(func() error {
+		return dst.SendTransferMsg(src, testCoin, src.MustGetAddress().String(), 0, 0)
+	})
+	require.NoError(t, eg.Wait())
 
-	// send a couple of transfers to the queue on dst
-	require.NoError(t, dst.SendTransferMsg(src, testCoin, src.MustGetAddress().String(), 0, 0))
-	require.NoError(t, dst.SendTransferMsg(src, testCoin, src.MustGetAddress().String(), 0, 0))
+	strat := cmd.SetStrategyDefaultOptions(path.MustGetStrategy())
 
-	// Wait for message inclusion in both chains
-	require.NoError(t, dst.WaitForNBlocks(1))
+	// Ensure queue has correct number of packets
+	seq, err := strat.UnrelayedSequences(src, dst)
+	require.NoError(t, err)
+
+	require.Equal(t, 2, len(seq.Src))
+	require.Equal(t, 2, len(seq.Dst))
+
+	// clear the queue
+	require.NoError(t, strat.RelayPackets(src, dst, seq))
+
+	// send a couple more transfers to the queue on src and dst
+	eg.Go(func() error {
+		return src.SendTransferMsg(dst, testCoin, dst.MustGetAddress().String(), 0, 0)
+	})
+	eg.Go(func() error {
+		return dst.SendTransferMsg(src, testCoin, src.MustGetAddress().String(), 0, 0)
+	})
+	require.NoError(t, eg.Wait())
+	eg.Go(func() error {
+		return src.SendTransferMsg(dst, testCoin, dst.MustGetAddress().String(), 0, 0)
+	})
+	eg.Go(func() error {
+		return dst.SendTransferMsg(src, testCoin, src.MustGetAddress().String(), 0, 0)
+	})
+	require.NoError(t, eg.Wait())
 
 	// start the relayer process in it's own goroutine
 	rlyDone, err := relayer.RunStrategy(src, dst, path.MustGetStrategy())
@@ -82,10 +120,36 @@ func TestGaiaToGaiaStreamingRelayer(t *testing.T) {
 	require.NoError(t, dst.SendTransferMsg(src, twoTestCoin, src.MustGetAddress().String(), 0, 0))
 
 	// wait for packet processing
-	require.NoError(t, dst.WaitForNBlocks(6))
+	require.NoError(t, retry.Do(func() error {
+		seq, err := strat.UnrelayedSequences(src, dst)
+		if err != nil {
+			return err
+		}
+		if len(seq.Src) > 0 {
+			return fmt.Errorf("[%s] unrelayed packets %v", src.ChainID, seq.Src)
+		}
+		if len(seq.Dst) > 0 {
+			return fmt.Errorf("[%s] unrelayed packets %v", src.ChainID, seq.Dst)
+		}
+		return nil
+	}))
+
+	require.NoError(t, dst.WaitForNBlocks(12))
 
 	// kill relayer routine
 	rlyDone()
+
+	srch, err := src.QueryLatestHeight()
+	require.NoError(t, err)
+	dsth, err := dst.QueryLatestHeight()
+	require.NoError(t, err)
+	srcr, err := src.QueryNextSeqRecv(srch)
+	require.NoError(t, err)
+	dstr, err := dst.QueryNextSeqRecv(dsth)
+	require.NoError(t, err)
+
+	require.Equal(t, uint64(4), srcr.NextSequenceReceive)
+	require.Equal(t, uint64(4), dstr.NextSequenceReceive)
 
 	// check balance on src against expected
 	srcGot, err := src.QueryBalance(src.Key)
@@ -94,16 +158,6 @@ func TestGaiaToGaiaStreamingRelayer(t *testing.T) {
 
 	// check balance on dst against expected
 	dstGot, err := dst.QueryBalance(dst.Key)
-	require.NoError(t, err)
-	require.Equal(t, dstExpected.AmountOf(testDenom).Int64()-4000, dstGot.AmountOf(testDenom).Int64())
-
-	// check balance on src against expected
-	srcGot, err = src.QueryBalance(src.Key)
-	require.NoError(t, err)
-	require.Equal(t, srcExpected.AmountOf(testDenom).Int64()-4000, srcGot.AmountOf(testDenom).Int64())
-
-	// check balance on dst against expected
-	dstGot, err = dst.QueryBalance(dst.Key)
 	require.NoError(t, err)
 	require.Equal(t, dstExpected.AmountOf(testDenom).Int64()-4000, dstGot.AmountOf(testDenom).Int64())
 }

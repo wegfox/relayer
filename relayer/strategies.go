@@ -68,6 +68,7 @@ func RunStrategy(src, dst *Chain, strategy Strategy) (func(), error) {
 	}
 
 	if err = strategy.RelayPackets(src, dst, sp); err != nil {
+		fmt.Println("IN THIS ERROR CONDITION!!!")
 		return nil, err
 	}
 
