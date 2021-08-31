@@ -4,6 +4,7 @@ SDKCOMMIT := $(shell go list -m -u -f '{{.Version}}' github.com/cosmos/cosmos-sd
 GAIA_VERSION := v5.0.4
 AKASH_VERSION := v0.12.1
 WASMD_VERSION := v0.16.0
+SOMM_VERSION  := v1.0.0
 
 GOPATH := $(shell go env GOPATH)
 GOBIN := $(GOPATH)/bin
@@ -83,6 +84,13 @@ lint:
 ###############################################################################
 # Chain Code Downloads
 ###############################################################################
+
+get-somm:
+	@mkdir -p ./chain-code/
+	@git clone --branch jack/test-ibc-forward git@github.com:PeggyJV/sommelier.git ./chain-code/sommelier
+
+build-somm:
+	@./scripts/build-somm
 
 get-gaia:
 	@mkdir -p ./chain-code/
