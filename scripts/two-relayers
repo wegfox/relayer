@@ -1,0 +1,29 @@
+#!/bin/bash
+
+SCRIPTDIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
+CONFIG_DATA="$(pwd)/data"
+
+rlyid0=rly-0
+rlyid1=rly-1
+
+echo "Building Relayer..."
+make install
+
+echo "Generating rly-0 configurations..."
+rly config init --home $CONFIG_DATA/$rlyid0 > $CONFIG_DATA/$rlyid0.log
+rly config add-chains configs/three/chains1/ --home $CONFIG_DATA/$rlyid0 > $CONFIG_DATA/$rlyid0.log
+
+echo "Generating rly-1 configurations..."
+rly config init --home $CONFIG_DATA/$rlyid1 > $CONFIG_DATA/$rlyid1.log
+rly config add-chains configs/three/chains2/ --home $CONFIG_DATA/$rlyid1 > $CONFIG_DATA/$rlyid1.log
+
+SEED0=$(jq -r '.mnemonic' $CONFIG_DATA/ibc-0/key_seed.json)
+SEED1=$(jq -r '.mnemonic' $CONFIG_DATA/ibc-1/key_seed.json)
+SEED2=$(jq -r '.mnemonic' $CONFIG_DATA/ibc-2/key_seed.json)
+echo "Key $(rly keys restore ibc-0 testkey "$SEED0" --home $CONFIG_DATA/$rlyid0) imported from ibc-0 to relayer-0..." > $CONFIG_DATA/$rlyid0.log
+echo "Key $(rly keys restore ibc-1 testkey "$SEED1" --home $CONFIG_DATA/$rlyid0) imported from ibc-1 to relayer-0..." > $CONFIG_DATA/$rlyid0.log
+echo "Key $(rly keys restore ibc-1 testkey "$SEED1" --home $CONFIG_DATA/$rlyid1) imported from ibc-1 to relayer-1..." > $CONFIG_DATA/$rlyid1.log
+echo "Key $(rly keys restore ibc-2 testkey "$SEED2" --home $CONFIG_DATA/$rlyid1) imported from ibc-2 to relayer-1..." > $CONFIG_DATA/$rlyid1.log
+
+rly config add-paths configs/three/path1 --home $CONFIG_DATA/$rlyid0 > $CONFIG_DATA/$rlyid0.log
+rly config add-paths configs/three/path2 --home $CONFIG_DATA/$rlyid1 > $CONFIG_DATA/$rlyid1.log
