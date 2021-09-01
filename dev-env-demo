@@ -26,17 +26,28 @@ rly tx link demo -d -o 3s
 rly tx link demo2 -d -o 3s
 rly start demo > $CONFIG_DATA/rly-0.log 2>&1 &
 rly start demo2 > $CONFIG_DATA/rly-1.log 2>&1 &
-echo "raw:$(rly keys show ibc-1)|transfer/channel-1:$(rly keys show ibc-2)"
+echo "Initial balances"
+echo "balance 0 $(rly q bal ibc-0)"
+echo "balance 1 $(rly q bal ibc-1)"
+echo "balance 2 $(rly q bal ibc-2)"
+echo 
+echo "Packet reciever field: $(rly keys show ibc-1)|transfer/channel-1:$(rly keys show ibc-2)"
 rly tx transfer ibc-0 ibc-1 10000000000samoleans "raw:$(rly keys show ibc-1)|transfer/channel-1:$(rly keys show ibc-2)"
-# tail -f $CONFIG_DATA/ibc-1.log
+echo
 sleep 10
+echo "Balances after packet is sent to ibc-1"
 echo "balance 0 $(rly q bal ibc-0)"
 echo "balance 1 $(rly q bal ibc-1)"
 echo "balance 2 $(rly q bal ibc-2)"
 sleep 10
+echo "Balances after packet is sent from ibc-1 to ibc-2"
 echo "balance 0 $(rly q bal ibc-0)"
 echo "balance 1 $(rly q bal ibc-1)"
 echo "balance 2 $(rly q bal ibc-2)"
+echo "################## relayer ibc-0 -> ibc-1 logs #####################"
+cat $CONFIG_DATA/rly-0.log
+echo "################## relayer ibc-0 -> ibc-1 logs #####################"
+cat $CONFIG_DATA/rly-1.log
 
 #go run main.go tx transfer ibc-0 ibc-1 1000samoleans $(go run main.go ch addr ibc-1)
 #go run main.go tx transfer ibc-1 ibc-2 1000samoleans $(go run main.go ch addr ibc-2)
