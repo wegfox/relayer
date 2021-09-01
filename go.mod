@@ -1,4 +1,4 @@
-module github.com/cosmos/relayer
+module github.com/strangelove-ventures/relayer
 
 go 1.15
 

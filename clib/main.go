@@ -20,8 +20,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/cosmos/relayer/cmd"
-	"github.com/cosmos/relayer/relayer"
+	"github.com/strangelove-ventues/relayer/cmd"
+	"github.com/strangelove-ventues/relayer/relayer"
 )
 
 type goReturn = struct {

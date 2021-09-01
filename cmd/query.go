@@ -8,14 +8,14 @@ import (
 	"strings"
 
 	"github.com/cosmos/cosmos-sdk/client"
-	"github.com/cosmos/relayer/relayer"
+	"github.com/strangelove-ventures/relayer/relayer"
 
 	"github.com/cosmos/cosmos-sdk/client/flags"
 	"github.com/cosmos/cosmos-sdk/x/auth/types"
 	clienttypes "github.com/cosmos/ibc-go/modules/core/02-client/types"
 	tmclient "github.com/cosmos/ibc-go/modules/light-clients/07-tendermint/types"
-	"github.com/cosmos/relayer/helpers"
 	"github.com/spf13/cobra"
+	"github.com/strangelove-ventures/relayer/helpers"
 )
 
 // queryCmd represents the chain command
@@ -213,9 +213,10 @@ $ %s q acc ibc-1`,
 
 func queryBalanceCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "balance [chain-id] [[key-name]]",
-		Short: "query the relayer's account balance on a given network by chain-ID",
-		Args:  cobra.RangeArgs(1, 2),
+		Use:     "balance [chain-id] [[key-name]]",
+		Short:   "query the relayer's account balance on a given network by chain-ID",
+		Args:    cobra.RangeArgs(1, 2),
+		Aliases: []string{"bal"},
 		Example: strings.TrimSpace(fmt.Sprintf(`
 $ %s query balance ibc-0
 $ %s query balance ibc-0 testkey`,

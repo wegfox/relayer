@@ -24,8 +24,8 @@ import (
 
 	ckeys "github.com/cosmos/cosmos-sdk/client/keys"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/relayer/helpers"
 	"github.com/spf13/cobra"
+	"github.com/strangelove-ventures/relayer/helpers"
 )
 
 const (

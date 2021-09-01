@@ -45,7 +45,7 @@ rm -rf $CONFIG_DATA &> /dev/null
 killall gaiad &> /dev/null
 killall sommelier &> /dev/null
 
-set -e
+# set -e
 
 chainid0=ibc-0
 chainid1=ibc-1
@@ -57,8 +57,8 @@ rlyid1=rly-1
 echo "Generating chain configurations..."
 mkdir -p $CONFIG_DATA && cd $CONFIG_DATA && cd ../
 ./scripts/one-chain gaiad     $chainid0 ./data 26657 26656 6060 9090
-./scripts/one-chain sommelier $chainid1 ./data 26557 26556 6061 9091
-./scripts/one-chain gaiad     $chainid2 ./data 25557 25556 6062 9092
+./scripts/one-chain sommelier $chainid1 ./data 26557 26556 6061 9900
+./scripts/one-chain gaiad     $chainid2 ./data 25557 25556 6062 9990
 
 [ -f $CONFIG_DATA/$chainid0.log ] && echo "$chainid0 initialized. Watch file $CONFIG_DATA/$chainid0.log to see its execution."
 [ -f $CONFIG_DATA/$chainid1.log ] && echo "$chainid1 initialized. Watch file $CONFIG_DATA/$chainid1.log to see its execution."
@@ -66,5 +66,5 @@ mkdir -p $CONFIG_DATA && cd $CONFIG_DATA && cd ../
 
 # Spin up the 2 relayer instances
 ./scripts/two-relayers
-[ -f $CONFIG_DATA/$rlyid0.log ] && echo "$rlyid0 initialized. Watch file $CONFIG_DATA/$rlyid0.log to see its execution."
-[ -f $CONFIG_DATA/$rlyid1.log ] && echo "$rlyid1 initialized. Watch file $CONFIG_DATA/$rlyid1.log to see its execution."
+# [ -f $CONFIG_DATA/$rlyid0.log ] && echo "$rlyid0 initialized. Watch file $CONFIG_DATA/$rlyid0.log to see its execution."
+# [ -f $CONFIG_DATA/$rlyid1.log ] && echo "$rlyid1 initialized. Watch file $CONFIG_DATA/$rlyid1.log to see its execution."

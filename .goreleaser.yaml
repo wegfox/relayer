@@ -8,9 +8,9 @@ builds:
   - id: "relayer"
     main: ./main.go
     ldflags:
-      - -X github.com/cosmos/relayer/cmd.Version={{ .Tag }}
-      - -X github.com/cosmos/relayer/cmd.Commit={{ .FullCommit }}
-      - -X github.com/cosmos/relayer/cmd.SDKCommit={{ .Env.SDK_COMMIT }}
+      - -X github.com/strangelove-ventures/relayer/cmd.Version={{ .Tag }}
+      - -X github.com/strangelove-ventures/relayer/cmd.Commit={{ .FullCommit }}
+      - -X github.com/strangelove-ventures/relayer/cmd.SDKCommit={{ .Env.SDK_COMMIT }}
     goos:
       - darwin
       - linux

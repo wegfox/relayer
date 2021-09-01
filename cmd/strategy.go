@@ -3,8 +3,8 @@ package cmd
 import (
 	"strconv"
 
-	"github.com/cosmos/relayer/relayer"
 	"github.com/spf13/cobra"
+	"github.com/strangelove-ventures/relayer/relayer"
 )
 
 // GetStrategyWithOptions sets strategy specific fields.

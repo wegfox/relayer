@@ -14,7 +14,7 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v2"
 
-	"github.com/cosmos/relayer/relayer"
+	"github.com/strangelove-ventures/relayer/relayer"
 )
 
 const (

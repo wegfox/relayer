@@ -22,8 +22,12 @@ bash scripts/three-chainz "skip"
 echo "waiting for blocks..."
 sleep 5
 
-rly tx link demo -d -o 3s --home $CONFIG_DATA/rly-0
-rly tx link demo2 -d -o 3s --home $CONFIG_DATA/rly-1
+rly tx link demo -d -o 3s
+rly tx link demo2 -d -o 3s
+rly start demo > $CONFIG_DATA/rly-0.log 2>&1 &
+rly start demo2 > $CONFIG_DATA/rly-1.log 2>&1 &
+echo "raw:$(rly keys show ibc-1)|transfer/channel-0:$(rly keys show ibc-2)"
+rly tx transfer ibc-0 ibc-1 10000000000samoleans "raw:$(rly keys show ibc-1)|transfer/channel-0:$(rly keys show ibc-2)"
 #go run main.go tx transfer ibc-0 ibc-1 1000samoleans $(go run main.go ch addr ibc-1)
 #go run main.go tx transfer ibc-1 ibc-2 1000samoleans $(go run main.go ch addr ibc-2)
 #go run main.go tx transfer ibc-2 ibc-1 1000samoleans $(go run main.go ch addr ibc-1)

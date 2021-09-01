@@ -2,16 +2,17 @@ package test
 
 import (
 	"testing"
+	"time"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/relayer/relayer"
+	"github.com/strangelove-ventures/relayer/relayer"
 	"github.com/stretchr/testify/require"
 )
 
 var (
 	akashChains = []testChain{
-		{"ibc-0", 0, gaiaTestConfig},
-		{"ibc-1", 1, akashTestConfig},
+		{"gaiad", 0, gaiaTestConfig},
+		{"akash", 1, akashTestConfig},
 	}
 )
 
@@ -19,8 +20,8 @@ func TestAkashToGaiaStreamingRelayer(t *testing.T) {
 	chains := spinUpTestChains(t, akashChains...)
 
 	var (
-		src         = chains.MustGet("ibc-0")
-		dst         = chains.MustGet("ibc-1")
+		src         = chains.MustGet("gaiad")
+		dst         = chains.MustGet("akash")
 		testDenom   = "samoleans"
 		testCoin    = sdk.NewCoin(testDenom, sdk.NewInt(1000))
 		twoTestCoin = sdk.NewCoin(testDenom, sdk.NewInt(2000))
@@ -68,6 +69,7 @@ func TestAkashToGaiaStreamingRelayer(t *testing.T) {
 	require.NoError(t, dst.WaitForNBlocks(1))
 
 	// send those tokens from dst back to dst and src back to src
+	time.Sleep(10 * time.Millisecond)
 	require.NoError(t, src.SendTransferMsg(dst, twoTestCoin, dst.MustGetAddress().String(), 0, 0))
 	require.NoError(t, dst.SendTransferMsg(src, twoTestCoin, src.MustGetAddress().String(), 0, 0))
 

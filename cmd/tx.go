@@ -12,8 +12,8 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	banktypes "github.com/cosmos/cosmos-sdk/x/bank/types"
 	upgradetypes "github.com/cosmos/cosmos-sdk/x/upgrade/types"
-	"github.com/cosmos/relayer/relayer"
 	"github.com/spf13/cobra"
+	"github.com/strangelove-ventures/relayer/relayer"
 )
 
 // transactionCmd returns a parent transaction command handler, where all child

@@ -14,7 +14,7 @@ import (
 	dc "github.com/ory/dockertest/v3/docker"
 	"github.com/stretchr/testify/require"
 
-	ry "github.com/cosmos/relayer/relayer"
+	ry "github.com/strangelove-ventures/relayer/relayer"
 
 	sdked25519 "github.com/cosmos/cosmos-sdk/crypto/keys/ed25519"
 	sdkcryptotypes "github.com/cosmos/cosmos-sdk/crypto/types"

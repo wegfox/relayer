@@ -12,9 +12,9 @@ import (
 	"time"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/cosmos/relayer/relayer"
 	"github.com/gorilla/mux"
 	"github.com/spf13/cobra"
+	"github.com/strangelove-ventures/relayer/relayer"
 )
 
 func testnetsCmd() *cobra.Command {

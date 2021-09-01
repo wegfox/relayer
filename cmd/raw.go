@@ -9,8 +9,8 @@ import (
 	clienttypes "github.com/cosmos/ibc-go/modules/core/02-client/types"
 	commitmenttypes "github.com/cosmos/ibc-go/modules/core/23-commitment/types"
 	ibctmtypes "github.com/cosmos/ibc-go/modules/light-clients/07-tendermint/types"
-	"github.com/cosmos/relayer/relayer"
 	"github.com/spf13/cobra"
+	"github.com/strangelove-ventures/relayer/relayer"
 	"github.com/tendermint/tendermint/light"
 )
 

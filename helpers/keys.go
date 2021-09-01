@@ -2,7 +2,7 @@ package helpers
 
 import (
 	"github.com/cosmos/cosmos-sdk/crypto/hd"
-	"github.com/cosmos/relayer/relayer"
+	"github.com/strangelove-ventures/relayer/relayer"
 )
 
 // KeyOutput contains mnemonic and address of key
