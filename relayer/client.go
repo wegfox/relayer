@@ -10,17 +10,34 @@ import (
 	clienttypes "github.com/cosmos/ibc-go/modules/core/02-client/types"
 	commitmenttypes "github.com/cosmos/ibc-go/modules/core/23-commitment/types"
 	ibctmtypes "github.com/cosmos/ibc-go/modules/light-clients/07-tendermint/types"
+	tmclient "github.com/cosmos/ibc-go/modules/light-clients/07-tendermint/types"
 	"github.com/tendermint/tendermint/light"
+	"golang.org/x/sync/errgroup"
 )
 
 // CreateClients creates clients for src on dst and dst on src if the client ids are unspecified.
 // TODO: de-duplicate code
-func (c *Chain) CreateClients(dst *Chain, allowUpdateAfterExpiry,
-	allowUpdateAfterMisbehaviour, override bool) (modified bool, err error) {
+func (c *Chain) CreateClients(dst *Chain, allowUpdateAfterExpiry, allowUpdateAfterMisbehaviour, override bool) (modified bool, err error) {
+	var (
+		eg                               = new(errgroup.Group)
+		srcUpdateHeader, dstUpdateHeader *tmclient.Header
+	)
 
-	srcUpdateHeader, dstUpdateHeader, err := GetIBCCreateClientHeaders(c, dst)
+	srch, dsth, err := QueryLatestHeights(c, dst)
 	if err != nil {
 		return false, err
+	}
+
+	eg.Go(func() error {
+		srcUpdateHeader, err = c.GetLightSignedHeaderAtHeight(srch)
+		return err
+	})
+	eg.Go(func() error {
+		dstUpdateHeader, err = dst.GetLightSignedHeaderAtHeight(dsth)
+		return err
+	})
+	if err = eg.Wait(); err != nil {
+		return
 	}
 
 	// Create client for the destination chain on the source chain if client id is unspecified
