@@ -34,7 +34,7 @@ func (c *Chain) CreateClient(
 	msg, err := clienttypes.NewMsgCreateClient(
 		clientState,
 		dstHeader.ConsensusState(),
-		c.MustGetAddress().String(), // 'MustGetAddress' must be called directly before calling 'NewMsg...'
+		c.MustGetAddress(), // 'MustGetAddress' must be called directly before calling 'NewMsg...'
 	)
 
 	if err != nil {
@@ -55,7 +55,7 @@ func (c *Chain) UpdateClient(dst *Chain, dsth *tmclient.Header) (sdk.Msg, error)
 	msg, err := clienttypes.NewMsgUpdateClient(
 		c.PathEnd.ClientID,
 		dsth,
-		c.MustGetAddress().String(), // 'MustGetAddress' must be called directly before calling 'NewMsg...'
+		c.MustGetAddress(), // 'MustGetAddress' must be called directly before calling 'NewMsg...'
 	)
 	if err != nil {
 		return nil, err
@@ -77,7 +77,7 @@ func (c *Chain) ConnInit(counterparty *Chain, counterpartyHeader *tmclient.Heade
 		defaultChainPrefix,
 		version,
 		defaultDelayPeriod,
-		c.MustGetAddress().String(), // 'MustGetAddress' must be called directly before calling 'NewMsg...'
+		c.MustGetAddress(), // 'MustGetAddress' must be called directly before calling 'NewMsg...'
 	)
 
 	return []sdk.Msg{updateMsg, msg}, nil
@@ -117,7 +117,7 @@ func (c *Chain) ConnTry(counterparty *Chain, counterpartyHeader *tmclient.Header
 		consensusStateProof,
 		proofHeight,
 		clientState.GetLatestHeight().(clienttypes.Height),
-		c.MustGetAddress().String(), // 'MustGetAddress' must be called directly before calling 'NewMsg...'
+		c.MustGetAddress(), // 'MustGetAddress' must be called directly before calling 'NewMsg...'
 	)
 	if err := msg.ValidateBasic(); err != nil {
 		return nil, err
@@ -154,7 +154,7 @@ func (c *Chain) ConnAck(counterparty *Chain, counterpartyHeader *tmclient.Header
 		proofHeight,
 		clientState.GetLatestHeight().(clienttypes.Height),
 		conntypes.DefaultIBCVersion,
-		c.MustGetAddress().String(), // 'MustGetAddress' must be called directly before calling 'NewMsg...'
+		c.MustGetAddress(), // 'MustGetAddress' must be called directly before calling 'NewMsg...'
 	)
 
 	return []sdk.Msg{updateMsg, msg}, nil
@@ -180,7 +180,7 @@ func (c *Chain) ConnConfirm(counterparty *Chain, counterpartyHeader *tmclient.He
 		c.PathEnd.ConnectionID,
 		counterpartyConnState.Proof,
 		counterpartyConnState.ProofHeight,
-		c.MustGetAddress().String(), // 'MustGetAddress' must be called directly before calling 'NewMsg...'
+		c.MustGetAddress(), // 'MustGetAddress' must be called directly before calling 'NewMsg...'
 	)
 
 	return []sdk.Msg{updateMsg, msg}, nil
@@ -199,7 +199,7 @@ func (c *Chain) ChanInit(counterparty *Chain, counterpartyHeader *tmclient.Heade
 		c.PathEnd.GetOrder(),
 		[]string{c.PathEnd.ConnectionID},
 		counterparty.PathEnd.PortID,
-		c.MustGetAddress().String(), // 'MustGetAddress' must be called directly before calling 'NewMsg...'
+		c.MustGetAddress(), // 'MustGetAddress' must be called directly before calling 'NewMsg...'
 	)
 
 	return []sdk.Msg{updateMsg, msg}, nil
@@ -233,7 +233,7 @@ func (c *Chain) ChanTry(counterparty *Chain, counterpartyHeader *tmclient.Header
 		counterpartyChannelRes.Channel.Version,
 		counterpartyChannelRes.Proof,
 		counterpartyChannelRes.ProofHeight,
-		c.MustGetAddress().String(), // 'MustGetAddress' must be called directly before calling 'NewMsg...'
+		c.MustGetAddress(), // 'MustGetAddress' must be called directly before calling 'NewMsg...'
 
 	)
 
@@ -265,7 +265,7 @@ func (c *Chain) ChanAck(counterparty *Chain, counterpartyHeader *tmclient.Header
 		counterpartyChannelRes.Channel.Version,
 		counterpartyChannelRes.Proof,
 		counterpartyChannelRes.ProofHeight,
-		c.MustGetAddress().String(), // 'MustGetAddress' must be called directly before calling 'NewMsg...'
+		c.MustGetAddress(), // 'MustGetAddress' must be called directly before calling 'NewMsg...'
 	)
 
 	return []sdk.Msg{updateMsg, msg}, nil
@@ -293,7 +293,7 @@ func (c *Chain) ChanConfirm(counterparty *Chain, counterpartyHeader *tmclient.He
 		c.PathEnd.ChannelID,
 		counterpartyChanState.Proof,
 		counterpartyChanState.ProofHeight,
-		c.MustGetAddress().String(), // 'MustGetAddress' must be called directly before calling 'NewMsg...'
+		c.MustGetAddress(), // 'MustGetAddress' must be called directly before calling 'NewMsg...'
 	)
 
 	return []sdk.Msg{updateMsg, msg}, nil
@@ -304,7 +304,7 @@ func (c *Chain) ChanCloseInit() sdk.Msg {
 	return chantypes.NewMsgChannelCloseInit(
 		c.PathEnd.PortID,
 		c.PathEnd.ChannelID,
-		c.MustGetAddress().String(), // 'MustGetAddress' must be called directly before calling 'NewMsg...'
+		c.MustGetAddress(), // 'MustGetAddress' must be called directly before calling 'NewMsg...'
 	)
 }
 
@@ -315,7 +315,7 @@ func (c *Chain) ChanCloseConfirm(dstChanState *chantypes.QueryChannelResponse) s
 		c.PathEnd.ChannelID,
 		dstChanState.Proof,
 		dstChanState.ProofHeight,
-		c.MustGetAddress().String(), // 'MustGetAddress' must be called directly before calling 'NewMsg...'
+		c.MustGetAddress(), // 'MustGetAddress' must be called directly before calling 'NewMsg...'
 	)
 }
 
@@ -327,7 +327,7 @@ func (c *Chain) MsgTransfer(dst *PathEnd, amount sdk.Coin, dstAddr string,
 		c.PathEnd.PortID,
 		c.PathEnd.ChannelID,
 		amount,
-		c.MustGetAddress().String(), // 'MustGetAddress' must be called directly before calling 'NewMsg...'
+		c.MustGetAddress(), // 'MustGetAddress' must be called directly before calling 'NewMsg...'
 		dstAddr,
 		clienttypes.NewHeight(version, timeoutHeight),
 		timeoutTimestamp,
@@ -359,7 +359,7 @@ func (c *Chain) MsgRelayRecvPacket(counterparty *Chain, counterpartyHeight int64
 			),
 			comRes.Proof,
 			comRes.ProofHeight,
-			c.MustGetAddress().String(),
+			c.MustGetAddress(),
 		), nil
 	}
 }
@@ -390,7 +390,7 @@ func (c *Chain) MsgRelayAcknowledgement(counterparty *Chain, counterpartyHeight 
 			packet.ack,
 			ackRes.Proof,
 			ackRes.ProofHeight,
-			c.MustGetAddress().String()), nil
+			c.MustGetAddress()), nil
 	}
 }
 
@@ -421,7 +421,7 @@ func (c *Chain) MsgRelayTimeout(counterparty *Chain, counterpartyHeight int64, p
 			packet.seq,
 			recvRes.Proof,
 			recvRes.ProofHeight,
-			c.MustGetAddress().String(),
+			c.MustGetAddress(),
 		), nil
 	}
 }

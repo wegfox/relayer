@@ -610,6 +610,8 @@ func (nrs *NaiveStrategy) RelayPackets(src, dst *Chain, sp *RelaySequences) erro
 		if len(msgs.Src) > 1 {
 			src.logPacketsRelayed(dst, len(msgs.Src)-1)
 		}
+	} else {
+		fmt.Println()
 	}
 
 	return nil

@@ -69,7 +69,7 @@ func (rp *relayMsgTimeout) Msg(src, dst *Chain) (sdk.Msg, error) {
 		rp.seq,
 		rp.dstRecvRes.Proof,
 		rp.dstRecvRes.ProofHeight,
-		src.MustGetAddress().String(),
+		src.MustGetAddress(),
 	)
 	return msg, nil
 }
@@ -140,7 +140,7 @@ func (rp *relayMsgRecvPacket) Msg(src, dst *Chain) (sdk.Msg, error) {
 		packet,
 		rp.dstComRes.Proof,
 		rp.dstComRes.ProofHeight,
-		src.MustGetAddress().String(),
+		src.MustGetAddress(),
 	)
 	return msg, nil
 }
@@ -184,7 +184,7 @@ func (rp *relayMsgPacketAck) Msg(src, dst *Chain) (sdk.Msg, error) {
 		rp.ack,
 		rp.dstComRes.Proof,
 		rp.dstComRes.ProofHeight,
-		src.MustGetAddress().String(),
+		src.MustGetAddress(),
 	)
 	return msg, nil
 }
