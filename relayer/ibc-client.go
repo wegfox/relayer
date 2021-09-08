@@ -77,7 +77,7 @@ func (c *Chain) InjectTrustedFields(dst *Chain, header *tmclient.Header) (*tmcli
 
 	// inject TrustedValidators into header
 	h.TrustedValidators = trustedHeader.ValidatorSet
-	return &h, nil
+	return &h, trustedHeader.ValidateBasic()
 }
 
 // MustGetHeight takes the height inteface and returns the actual height
