@@ -2,6 +2,7 @@ package relayer
 
 import (
 	"fmt"
+	"github.com/avast/retry-go"
 	"strings"
 
 	"github.com/gogo/protobuf/proto"
@@ -156,6 +157,18 @@ func (r *RelayMsgs) SendWithController(src, dst *Chain, useController bool) {
 	if len(msgs) > 0 {
 		res, success, err := src.SendMsgs(msgs)
 		if err != nil {
+			if err = retry.Do(func() error {
+				res, success, err = src.SendMsgs(msgs)
+				if err != nil {
+					return err
+				}
+				return nil
+			}, rtyAtt, rtyDel, rtyErr, retry.OnRetry(func(n uint, err error) {
+				dst.logRetrySendMsgs(n, err)
+			})); err != nil {
+				return
+			}
+
 			src.LogFailedTx(res, err, msgs)
 		}
 

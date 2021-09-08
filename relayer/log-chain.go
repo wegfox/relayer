@@ -129,6 +129,13 @@ func (c *Chain) logRetryQueryPacketAcknowledgements(height uint64, n uint, err e
 	}
 }
 
+func (c *Chain) logRetrySendMsgs(n uint, err error) {
+	if c.debug {
+		c.Log(fmt.Sprintf("- [%s] -> try(%d/%d) send msgs: %s",
+			c.ChainID, n+1, rtyAttNum, err))
+	}
+}
+
 func (c *Chain) logUnreceivedPackets(dst *Chain, packetType string, log string) {
 	c.Log(fmt.Sprintf("- unrelayed packet %s sent by %s to %s: %s", packetType, c.ChainID, dst.ChainID, log))
 }
