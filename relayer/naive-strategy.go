@@ -60,11 +60,7 @@ func (nrs *NaiveStrategy) UnrelayedSequences(src, dst *Chain) (*RelaySequences, 
 		rs           = &RelaySequences{Src: []uint64{}, Dst: []uint64{}}
 	)
 
-	srch, err := src.QueryLatestHeight()
-	if err != nil {
-		return nil, err
-	}
-	dsth, err := dst.QueryLatestHeight()
+	dsth, srch, err := QueryLatestHeights(src, dst)
 	if err != nil {
 		return nil, err
 	}
@@ -526,7 +522,7 @@ func (nrs *NaiveStrategy) RelayPackets(src, dst *Chain, sp *RelaySequences) erro
 		MaxMsgLength: nrs.MaxMsgLength,
 	}
 
-	srch, dsth, err := QueryLatestHeights(src, dst)
+	srch, dsth, srcHeader, dstHeader, err := QueryLatestIBCUpdateHeaders(src, dst)
 	if err != nil {
 		return err
 	}
@@ -577,10 +573,10 @@ func (nrs *NaiveStrategy) RelayPackets(src, dst *Chain, sp *RelaySequences) erro
 
 	// Prepend non-empty msg lists with UpdateClient
 	if len(msgs.Dst) != 0 {
-		srcHeader, err := src.GetIBCUpdateHeader(dst, srch)
-		if err != nil {
-			return err
-		}
+		// srcHeader, err := src.GetIBCUpdateHeader(dst, srch)
+		// if err != nil {
+		// 	return err
+		// }
 		updateMsg, err := dst.UpdateClient(src, srcHeader)
 		if err != nil {
 			return err
@@ -590,10 +586,10 @@ func (nrs *NaiveStrategy) RelayPackets(src, dst *Chain, sp *RelaySequences) erro
 	}
 
 	if len(msgs.Src) != 0 {
-		dstHeader, err := dst.GetIBCUpdateHeader(src, dsth)
-		if err != nil {
-			return err
-		}
+		// dstHeader, err := dst.GetIBCUpdateHeader(src, dsth)
+		// if err != nil {
+		// 	return err
+		// }
 		updateMsg, err := src.UpdateClient(dst, dstHeader)
 		if err != nil {
 			return err

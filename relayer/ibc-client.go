@@ -8,7 +8,26 @@ import (
 	ibcexported "github.com/cosmos/ibc-go/modules/core/exported"
 	tmclient "github.com/cosmos/ibc-go/modules/light-clients/07-tendermint/types"
 	tmtypes "github.com/tendermint/tendermint/types"
+	"golang.org/x/sync/errgroup"
 )
+
+func QueryLatestIBCUpdateHeaders(src, dst *Chain) (srch, dsth int64, srcHeader, dstHeader *tmclient.Header, err error) {
+	srch, dsth, err = QueryLatestHeights(src, dst)
+	if err != nil {
+		return
+	}
+	var eg errgroup.Group
+	eg.Go(func() (err error) {
+		srcHeader, err = src.GetIBCUpdateHeader(dst, srch)
+		return
+	})
+	eg.Go(func() (err error) {
+		dstHeader, err = dst.GetIBCUpdateHeader(src, dsth)
+		return
+	})
+	err = eg.Wait()
+	return
+}
 
 func (c *Chain) GetLightSignedHeaderAtHeight(h int64) (*tmclient.Header, error) {
 	lightBlock, err := c.Provider.LightBlock(context.Background(), h)
