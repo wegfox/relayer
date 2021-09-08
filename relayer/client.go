@@ -84,9 +84,11 @@ func (c *Chain) CreateClients(dst *Chain, allowUpdateAfterExpiry, allowUpdateAft
 			// if a matching client does not exist, create one
 			res, success, err := c.SendMsgs(msgs)
 			if err != nil {
+				c.LogFailedTx(res, err, msgs)
 				return modified, err
 			}
 			if !success {
+				c.LogFailedTx(res, err, msgs)
 				return modified, fmt.Errorf("tx failed: %s", res.RawLog)
 			}
 
@@ -158,9 +160,11 @@ func (c *Chain) CreateClients(dst *Chain, allowUpdateAfterExpiry, allowUpdateAft
 			// if a matching client does not exist, create one
 			res, success, err := dst.SendMsgs(msgs)
 			if err != nil {
+				dst.LogFailedTx(res, err, msgs)
 				return modified, err
 			}
 			if !success {
+				dst.LogFailedTx(res, err, msgs)
 				return modified, fmt.Errorf("tx failed: %s", res.RawLog)
 			}
 
