@@ -263,7 +263,7 @@ $ %s chains add --url http://relayer.com/ibc0.json
 					return err
 				}
 			default:
-				if out, err = userInputAdd(cmd); err != nil {
+				if out, err = userInputAdd(); err != nil {
 					return err
 				}
 			}
@@ -366,7 +366,7 @@ func fileInputAdd(file string) (cfg *Config, err error) {
 	return config, nil
 }
 
-func userInputAdd(cmd *cobra.Command) (cfg *Config, err error) {
+func userInputAdd() (cfg *Config, err error) {
 	c := &relayer.Chain{}
 
 	var value string

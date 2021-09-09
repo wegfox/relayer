@@ -17,7 +17,7 @@ var (
 	DefaultUpgradePath = []string{"upgrade", "upgradedIBCState"}
 )
 
-// PathEnd represents the local connection identifers for a relay path
+// PathEnd represents the local connection identifiers for a relay path
 // The path is set on the chain before performing operations
 type PathEnd struct {
 	ChainID      string `yaml:"chain-id,omitempty" json:"chain-id,omitempty"`

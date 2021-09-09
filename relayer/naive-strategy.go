@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strconv"
 
-	retry "github.com/avast/retry-go"
+	"github.com/avast/retry-go"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	clienttypes "github.com/cosmos/ibc-go/modules/core/02-client/types"
 	chantypes "github.com/cosmos/ibc-go/modules/core/04-channel/types"
@@ -264,7 +264,7 @@ func (nrs *NaiveStrategy) HandleEvents(src, dst *Chain, srch, dsth int64, events
 	if len(rlyPackets) > 0 && err == nil {
 		// TODO: handle errors here by retrying the whole thing. Maybe try
 		// updating the heights on the retry?
-		retry.Do(func() error { return nrs.sendTxFromEventPackets(src, dst, srch, dsth, rlyPackets) }, retry.OnRetry(func(n uint, err error) {
+		retry.Do(func() error { return nrs.sendTxFromEventPackets(src, dst, dsth, rlyPackets) }, retry.OnRetry(func(n uint, err error) {
 			err = nil
 			srch, dsth, err = QueryLatestHeights(src, dst)
 			return
@@ -373,7 +373,7 @@ func relayPacketsFromEventListener(src, dst *PathEnd, events map[string][]string
 	return rlyPkts, nil
 }
 
-func (nrs *NaiveStrategy) sendTxFromEventPackets(src, dst *Chain, srch, dsth int64, rlyPackets []relayPacket) error {
+func (nrs *NaiveStrategy) sendTxFromEventPackets(src, dst *Chain, dsth int64, rlyPackets []relayPacket) error {
 	// send the transaction, retrying if not successful
 
 	dstHeader, err := dst.GetIBCUpdateHeader(src, dsth)
@@ -617,7 +617,7 @@ func (nrs *NaiveStrategy) RelayPackets(src, dst *Chain, sp *RelaySequences) erro
 // and returns recvPacket msgs, timeoutPacketmsgs and error
 func relayPacketFromSequence(src, dst *Chain, srch, dsth, seq uint64) (sdk.Msg, sdk.Msg, error) {
 	// var packet, timeout sdk.Msg
-	txs, err := src.QueryTxs(uint64(srch), 1, 1000, rcvPacketQuery(src.PathEnd.ChannelID, int(seq)))
+	txs, err := src.QueryTxs(1, 1000, rcvPacketQuery(src.PathEnd.ChannelID, int(seq)))
 	switch {
 	case err != nil:
 		return nil, nil, err
@@ -669,7 +669,7 @@ func relayPacketFromSequence(src, dst *Chain, srch, dsth, seq uint64) (sdk.Msg, 
 
 // source is the sending chain, destination is the receiving chain
 func acknowledgementFromSequence(src, dst *Chain, dsth, seq uint64) (sdk.Msg, error) {
-	txs, err := dst.QueryTxs(uint64(dsth), 1, 1000, ackPacketQuery(dst.PathEnd.ChannelID, int(seq)))
+	txs, err := dst.QueryTxs(1, 1000, ackPacketQuery(dst.PathEnd.ChannelID, int(seq)))
 	switch {
 	case err != nil:
 		return nil, err

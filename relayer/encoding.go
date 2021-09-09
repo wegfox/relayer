@@ -12,7 +12,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/simapp/params"
 	"github.com/cosmos/cosmos-sdk/std"
 	"github.com/cosmos/cosmos-sdk/x/auth/tx"
-	transfer "github.com/cosmos/ibc-go/modules/apps/transfer"
+	"github.com/cosmos/ibc-go/modules/apps/transfer"
 	ibc "github.com/cosmos/ibc-go/modules/core"
 	"github.com/gogo/protobuf/jsonpb"
 	"github.com/gogo/protobuf/proto"
@@ -22,7 +22,7 @@ import (
 func (c *Chain) MakeEncodingConfig() params.EncodingConfig {
 	amino := codec.NewLegacyAmino()
 	interfaceRegistry := types.NewInterfaceRegistry()
-	marshaler := c.NewProtoCodec(interfaceRegistry, c.AccountPrefix)
+	marshaler := c.NewProtoCodec(interfaceRegistry)
 	txCfg := tx.NewTxConfig(marshaler, tx.DefaultSignModes)
 
 	encodingConfig := params.EncodingConfig{
@@ -54,7 +54,7 @@ var _ codec.Codec = &ProtoCodec{}
 var _ codec.ProtoCodecMarshaler = &ProtoCodec{}
 
 // NewProtoCodec returns a reference to a new ProtoCodec
-func (c *Chain) NewProtoCodec(interfaceRegistry types.InterfaceRegistry, accountPrefix string) *ProtoCodec {
+func (c *Chain) NewProtoCodec(interfaceRegistry types.InterfaceRegistry) *ProtoCodec {
 	return &ProtoCodec{interfaceRegistry: interfaceRegistry, useContext: c.UseSDKContext}
 }
 

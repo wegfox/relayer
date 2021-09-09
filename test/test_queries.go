@@ -13,12 +13,12 @@ import (
 
 // testClientPair tests that the client for src on dst and dst on src are the only clients on those chains
 func testClientPair(t *testing.T, src, dst *relayer.Chain) {
-	testClient(t, src, dst)
-	testClient(t, dst, src)
+	testClient(t, src)
+	testClient(t, dst)
 }
 
 // testClient queries client for existence of dst on src
-func testClient(t *testing.T, src, dst *relayer.Chain) {
+func testClient(t *testing.T, src *relayer.Chain) {
 	srch, err := src.QueryLatestHeight()
 	require.NoError(t, err)
 	var (

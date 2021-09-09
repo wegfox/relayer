@@ -594,7 +594,7 @@ func (c *Chain) QueryTx(hashHex string) (*ctypes.ResultTx, error) {
 }
 
 // QueryTxs returns an array of transactions given a tag
-func (c *Chain) QueryTxs(height uint64, page, limit int, events []string) ([]*ctypes.ResultTx, error) {
+func (c *Chain) QueryTxs(page, limit int, events []string) ([]*ctypes.ResultTx, error) {
 	if len(events) == 0 {
 		return nil, errors.New("must declare at least one event to search")
 	}
@@ -688,8 +688,8 @@ func QueryLatestHeights(src, dst *Chain) (srch, dsth int64, err error) {
 // QueryHeaderAtHeight returns the header at a given height
 func (c *Chain) QueryHeaderAtHeight(height int64) (*tmclient.Header, error) {
 	var (
-		page    int = 1
-		perPage int = 100000
+		page    = 1
+		perPage = 100000
 	)
 	if height <= 0 {
 		return nil, fmt.Errorf("must pass in valid height, %d not valid", height)

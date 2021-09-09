@@ -9,14 +9,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-type stringStringer struct {
-	str string
-}
-
-func (ss stringStringer) String() string {
-	return ss.str
-}
-
 func xfersend() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "transfer [src-chain-id] [dst-chain-id] [amount] [dst-addr]",
