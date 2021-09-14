@@ -1,12 +1,8 @@
 package relayer
 
 import (
-	"context"
 	"fmt"
-
-	tmservice "github.com/tendermint/tendermint/libs/service"
-	ctypes "github.com/tendermint/tendermint/rpc/core/types"
-	tmtypes "github.com/tendermint/tendermint/types"
+	"time"
 )
 
 var (
@@ -17,7 +13,6 @@ var (
 // Strategy defines
 type Strategy interface {
 	GetType() string
-	HandleEvents(src, dst *Chain, srch, dsth int64, events map[string][]string)
 	UnrelayedSequences(src, dst *Chain) (*RelaySequences, error)
 	UnrelayedAcknowledgements(src, dst *Chain) (*RelaySequences, error)
 	RelayPackets(src, dst *Chain, sp *RelaySequences) error
@@ -53,107 +48,38 @@ type StrategyCfg struct {
 func RunStrategy(src, dst *Chain, strategy Strategy) (func(), error) {
 	doneChan := make(chan struct{})
 
-	// Fetch latest headers for each chain and store them in sync headers
-	// _, _, err := UpdateLightClients(src, dst)
-	// if err != nil {
-	// 	return nil, err
-	// }
+	tick := time.Tick(10 * time.Second)
+	// Keep trying until we're timed out or got a result or got an error
+	go func() {
+		for {
+			select {
+			// Got a timeout! fail with a timeout error
+			case <-doneChan:
+				return
+			case <-tick:
+				// Fetch any unrelayed sequences depending on the channel order
+				sp, err := strategy.UnrelayedSequences(src, dst)
+				if err != nil {
+					src.Log(fmt.Sprintf("unrelayed sequences error: %s", err))
+				}
 
-	// Next start the goroutine that listens to each chain for block and tx events
-	go relayerListenLoop(src, dst, doneChan, strategy)
+				if err = strategy.RelayPackets(src, dst, sp); err != nil {
+					src.Log(fmt.Sprintf("relay packets error: %s", err))
+				}
 
-	// Fetch any unrelayed sequences depending on the channel order
-	sp, err := strategy.UnrelayedSequences(src, dst)
-	if err != nil {
-		return nil, err
-	}
+				ap, err := strategy.UnrelayedAcknowledgements(src, dst)
+				if err != nil {
+					src.Log(fmt.Sprintf("unrelayed acks error: %s", err))
+				}
 
-	if err = strategy.RelayPackets(src, dst, sp); err != nil {
-		return nil, err
-	}
+				if err = strategy.RelayAcknowledgements(src, dst, ap); err != nil {
+					src.Log(fmt.Sprintf("relay acks error: %s", err))
+				}
+
+			}
+		}
+	}()
 
 	// Return a function to stop the relayer goroutine
 	return func() { doneChan <- struct{}{} }, nil
-}
-
-func relayerListenLoop(src, dst *Chain, doneChan chan struct{}, strategy Strategy) {
-	var (
-		srcTxEvents, srcBlockEvents, dstTxEvents, dstBlockEvents <-chan ctypes.ResultEvent
-		srcTxCancel, srcBlockCancel, dstTxCancel, dstBlockCancel context.CancelFunc
-		err                                                      error
-	)
-
-	// Start client for source chain
-	if err = src.Start(); err != nil {
-		if err != tmservice.ErrAlreadyStarted {
-			src.Error(err)
-			return
-		}
-	}
-
-	// Subscibe to txEvents from the source chain
-	if srcTxEvents, srcTxCancel, err = src.Subscribe(txEvents); err != nil {
-		src.Error(err)
-		return
-	}
-	defer srcTxCancel()
-	src.Log(fmt.Sprintf("- listening to tx events from %s...", src.ChainID))
-
-	// Subscibe to blockEvents from the source chain
-	if srcBlockEvents, srcBlockCancel, err = src.Subscribe(blEvents); err != nil {
-		src.Error(err)
-		return
-	}
-	defer srcBlockCancel()
-	src.Log(fmt.Sprintf("- listening to block events from %s...", src.ChainID))
-
-	// Subscribe to destination chain
-	if err = dst.Start(); err != nil {
-		if err != tmservice.ErrAlreadyStarted {
-			dst.Error(err)
-			return
-		}
-	}
-
-	// Subscibe to txEvents from the destination chain
-	if dstTxEvents, dstTxCancel, err = dst.Subscribe(txEvents); err != nil {
-		dst.Error(err)
-		return
-	}
-	defer dstTxCancel()
-	dst.Log(fmt.Sprintf("- listening to tx events from %s...", dst.ChainID))
-
-	// Subscibe to blockEvents from the destination chain
-	if dstBlockEvents, dstBlockCancel, err = dst.Subscribe(blEvents); err != nil {
-		src.Error(err)
-		return
-	}
-	defer dstBlockCancel()
-	dst.Log(fmt.Sprintf("- listening to block events from %s...", dst.ChainID))
-
-	// Listen to channels and take appropriate action
-	var srch, dsth int64
-	for {
-		select {
-		case srcMsg := <-srcTxEvents:
-			src.logTx(srcMsg.Events)
-			go strategy.HandleEvents(dst, src, dsth, srch, srcMsg.Events)
-		case dstMsg := <-dstTxEvents:
-			dst.logTx(dstMsg.Events)
-			go strategy.HandleEvents(src, dst, srch, dsth, dstMsg.Events)
-		case srcMsg := <-srcBlockEvents:
-			bl, _ := srcMsg.Data.(tmtypes.EventDataNewBlock)
-			srch = bl.Block.Height
-			go strategy.HandleEvents(dst, src, dsth, srch, srcMsg.Events)
-		case dstMsg := <-dstBlockEvents:
-			bl, _ := dstMsg.Data.(tmtypes.EventDataNewBlock)
-			dsth = bl.Block.Height
-			go strategy.HandleEvents(src, dst, srch, dsth, dstMsg.Events)
-		case <-doneChan:
-			src.Log(fmt.Sprintf("- [%s]:{%s} <-> [%s]:{%s} relayer shutting down",
-				src.ChainID, src.PathEnd.PortID, dst.ChainID, dst.PathEnd.PortID))
-			close(doneChan)
-			return
-		}
-	}
 }
