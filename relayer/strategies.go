@@ -47,7 +47,6 @@ type StrategyCfg struct {
 // RunStrategy runs a given strategy
 func RunStrategy(src, dst *Chain, strategy Strategy) (func(), error) {
 	doneChan := make(chan struct{})
-	tick := time.Tick(10 * time.Second)
 	// Keep trying until we're timed out or got a result or got an error
 	go func() {
 		for {
@@ -55,7 +54,7 @@ func RunStrategy(src, dst *Chain, strategy Strategy) (func(), error) {
 			// Got a timeout! fail with a timeout error
 			case <-doneChan:
 				return
-			case <-tick:
+			default:
 				fmt.Println("tick begin")
 				// Fetch any unrelayed sequences depending on the channel order
 				sp, err := strategy.UnrelayedSequences(src, dst)
@@ -78,7 +77,7 @@ func RunStrategy(src, dst *Chain, strategy Strategy) (func(), error) {
 				if err = strategy.RelayAcknowledgements(src, dst, ap); err != nil {
 					src.Log(fmt.Sprintf("relay acks error: %s", err))
 				}
-
+				time.Sleep(100 * time.Millisecond)
 			}
 		}
 	}()
