@@ -171,8 +171,8 @@ func (nrs *NaiveStrategy) UnrelayedAcknowledgements(src, dst *Chain) (*RelaySequ
 				return nil
 			}
 		}, rtyAtt, rtyDel, rtyErr, retry.OnRetry(func(n uint, err error) {
-			src.logRetryQueryPacketAcknowledgements(uint64(srch), n, err)
-			if srch, err = src.QueryLatestHeight(); err != nil {
+
+			if srch, _ = src.QueryLatestHeight(); err != nil {
 				return
 			}
 		})); err != nil {
