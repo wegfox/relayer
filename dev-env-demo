@@ -22,8 +22,8 @@ bash scripts/three-chainz "skip"
 echo "waiting for blocks..."
 sleep 2
 
-rly tx link demo -d -o 3s
-rly tx link demo2 -d -o 3s
+rly tx link demo -d -o 5s
+rly tx link demo2 -d -o 5s
 rly start demo > $CONFIG_DATA/rly-0.log 2>&1 &
 rly start demo2 > $CONFIG_DATA/rly-1.log 2>&1 &
 echo "Initial balances"

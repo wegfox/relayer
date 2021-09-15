@@ -76,7 +76,7 @@ redirect $BINARY --home $CHAINDIR/$CHAINID add-genesis-account $($BINARY --home 
 sleep 1
 redirect $BINARY --home $CHAINDIR/$CHAINID add-genesis-account $($BINARY --home $CHAINDIR/$CHAINID keys $KEYRING show validator -a) $coins 
 sleep 1
-redirect $BINARY --home $CHAINDIR/$CHAINID gentx validator $delegate $KEYRING --chain-id $CHAINID
+$BINARY --home $CHAINDIR/$CHAINID gentx validator $delegate $KEYRING --chain-id $CHAINID
 sleep 1
 redirect $BINARY --home $CHAINDIR/$CHAINID collect-gentxs 
 sleep 1
@@ -106,6 +106,10 @@ else
   sed -i '' 's/timeout_propose = "3s"/timeout_propose = "1s"/g' $CHAINDIR/$CHAINID/config/config.toml
   sed -i '' 's/index_all_keys = false/index_all_keys = true/g' $CHAINDIR/$CHAINID/config/config.toml
   # sed -i '' 's#index-events = \[\]#index-events = \["message.action","send_packet.packet_src_channel","send_packet.packet_sequence"\]#g' $CHAINDIR/$CHAINID/config/app.toml
+fi
+
+if [ $platform = 'linux' ]; then
+  sed -i 's/minimum-gas-prices = ""/minimum-gas-prices = "0.025stake"/g' $CHAINDIR/$CHAINID/config/app.toml
 fi
 
 # Start the gaia
