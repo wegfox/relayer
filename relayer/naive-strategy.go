@@ -623,13 +623,13 @@ func relayPacketFromSequence(src, dst *Chain, srch, dsth, seq uint64) (sdk.Msg, 
 	switch {
 	case err != nil:
 		return nil, nil, err
-	case len(txs) == 0:
+	case len(txs.Txs) == 0:
 		return nil, nil, fmt.Errorf("no transactions returned with query")
-	case len(txs) > 1:
+	case len(txs.Txs) > 1:
 		return nil, nil, fmt.Errorf("more than one transaction returned with query")
 	}
 
-	rcvPackets, timeoutPackets, err := relayPacketsFromResultTx(src, dst, int64(dsth), txs[0])
+	rcvPackets, timeoutPackets, err := relayPacketsFromResultTx(src, dst, int64(dsth), txs.Txs[0])
 	switch {
 	case err != nil:
 		return nil, nil, err
@@ -675,13 +675,13 @@ func acknowledgementFromSequence(src, dst *Chain, dsth, seq uint64) (sdk.Msg, er
 	switch {
 	case err != nil:
 		return nil, err
-	case len(txs) == 0:
+	case len(txs.Txs) == 0:
 		return nil, fmt.Errorf("no transactions returned with query")
-	case len(txs) > 1:
+	case len(txs.Txs) > 1:
 		return nil, fmt.Errorf("more than one transaction returned with query")
 	}
 
-	acks, err := acknowledgementsFromResultTx(src.PathEnd, dst.PathEnd, txs[0])
+	acks, err := acknowledgementsFromResultTx(src.PathEnd, dst.PathEnd, txs.Txs[0])
 	switch {
 	case err != nil:
 		return nil, err

@@ -71,7 +71,7 @@ func QueryHeader(chain *relayer.Chain, opts ...string) (*tmclient.Header, error)
 }
 
 // QueryTxs is a helper function for query txs
-func QueryTxs(chain *relayer.Chain, eventsStr string, offset uint64, limit uint64) ([]*ctypes.ResultTx, error) {
+func QueryTxs(chain *relayer.Chain, eventsStr string, offset uint64, limit uint64) (*ctypes.ResultTxSearch, error) {
 	ch, err := chain.QueryLatestHeight()
 	if err != nil {
 		return nil, err

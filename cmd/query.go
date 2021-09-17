@@ -144,17 +144,17 @@ $ %s q txs ibc-0 "message.action=transfer"`,
 				return err
 			}
 
-			offset, err := cmd.Flags().GetUint64(flags.FlagOffset)
+			page, err := cmd.Flags().GetUint64(flags.FlagPage)
 			if err != nil {
 				return err
 			}
 
-			limit, err := cmd.Flags().GetUint64(flags.FlagLimit)
+			count, err := cmd.Flags().GetUint64("count")
 			if err != nil {
 				return err
 			}
 
-			txs, err := helpers.QueryTxs(chain, args[1], offset, limit)
+			txs, err := helpers.QueryTxs(chain, args[1], page, count)
 			if err != nil {
 				return err
 			}
