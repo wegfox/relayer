@@ -69,7 +69,7 @@ func qosCmd() *cobra.Command {
 		Use:     "quality-of-servce [chain-id] [src_start]",
 		Aliases: []string{"qos"},
 		Short:   "query denomination traces for a given network by chain ID",
-		Args:    cobra.ExactArgs(3),
+		Args:    cobra.ExactArgs(2),
 		Example: strings.TrimSpace(fmt.Sprintf(`
 $ %s query ibc-denoms ibc-0
 $ %s q ibc-denoms ibc-0`,
