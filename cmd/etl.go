@@ -17,20 +17,25 @@ package cmd
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/avast/retry-go"
+
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	transfertypes "github.com/cosmos/ibc-go/modules/apps/transfer/types"
 	channeltypes "github.com/cosmos/ibc-go/modules/core/04-channel/types"
 	"github.com/cosmos/relayer/relayer"
+	_ "github.com/lib/pq"
 	"github.com/spf13/cobra"
 	"golang.org/x/sync/errgroup"
 )
 
-// queryCmd represents the chain command
+const driverName = "postgres"
+
 func etlCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "etl",
@@ -61,7 +66,7 @@ func etlCmd() *cobra.Command {
 // rly etl qos hubosmo {start_height_cosmoshub-4} {start_height_osmosis-1} {sql_connection_string}
 func qosCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "quality-of-servce [path] [src_start] [dst_start]",
+		Use:     "quality-of-servce [chain-id] [src_start]",
 		Aliases: []string{"qos"},
 		Short:   "query denomination traces for a given network by chain ID",
 		Args:    cobra.ExactArgs(3),
@@ -71,96 +76,130 @@ $ %s q ibc-denoms ibc-0`,
 			appName, appName,
 		)),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			c, src, dst, err := config.ChainsFromPath(args[0])
+			chain, err := config.Chains.Get(args[0])
 			if err != nil {
 				return err
 			}
+
+			connString, _ := cmd.Flags().GetString("conn")
+			fmt.Printf("Connecting to database with conn string: %s \n", connString)
+			db, err := sql.Open(driverName, connString)
+			if err != nil {
+				return fmt.Errorf("Failed to connect to db, ensure db server is running & check conn string. Err: %s \n", err)
+			}
+			defer db.Close()
+
+			alive := db.Ping()
+			if alive != nil {
+				return fmt.Errorf("Failed to connect to db, ensure db server is running & check conn string. Err: %s \n", err)
+			}
+			fmt.Println("Successfully connected to db instance.")
+
 			srcStart, err := strconv.ParseInt(args[1], 10, 64)
 			if err != nil {
 				return err
 			}
-			dstStart, err := strconv.ParseInt(args[2], 10, 64)
-			if err != nil {
-				return err
-			}
-			srcBlocks, dstBlocks, err := makeBlockArrays(c[src], c[dst], srcStart, dstStart)
+
+			srcBlocks, err := makeBlockArray(chain, srcStart)
 			if err != nil {
 				return nil
 			}
-			fmt.Printf("chain-id[%s] startBlock(%d) endBlock(%d)\n", src, srcBlocks[0], srcBlocks[len(srcBlocks)-1])
-			fmt.Printf("chain-id[%s] startBlock(%d) endBlock(%d)\n", dst, dstBlocks[0], dstBlocks[len(dstBlocks)-1])
-			if err := QueryBlocks(c[src], srcBlocks); err != nil {
-				return err
-			}
-			return QueryBlocks(c[dst], dstBlocks)
+			fmt.Printf("chain-id[%s] startBlock(%d) endBlock(%d)\n", chain.ChainID, srcBlocks[0], srcBlocks[len(srcBlocks)-1])
+
+			return QueryBlocks(chain, srcBlocks)
 		},
 	}
 
+	//TODO add proper default value
+	cmd.Flags().StringP("conn", "c", "host=127.0.0.1 port=5432 user=anon dbname=relayer sslmode=disable", "database connection string")
 	return cmd
 }
 
 func QueryBlocks(chain *relayer.Chain, blocks []int64) error {
 	fmt.Println("starting block queries for", chain.ChainID)
 	var eg errgroup.Group
-	sem := make(chan struct{}, 1000)
+	failedBlocks := make([]int64, 0)
+	sem := make(chan struct{}, 100)
+
 	for _, h := range blocks {
 		h := h
+		//fmt.Println(h)
 		sem <- struct{}{}
+		//fmt.Printf("Queue has this many elements: %d \n", len(sem))
+
 		eg.Go(func() error {
 			block, err := chain.Client.Block(context.Background(), &h)
 			if err != nil {
-				return err
+				if err = retry.Do(func() error {
+					block, err = chain.Client.Block(context.Background(), &h)
+					if err != nil {
+						return err
+					}
+
+					return nil
+				}, relayer.RtyAtt, relayer.RtyDel, relayer.RtyErr, retry.DelayType(retry.BackOffDelay), retry.OnRetry(func(n uint, err error) {
+					chain.LogRetryGetBlock(n, err, h)
+				})); err != nil {
+					if strings.Contains(err.Error(), "wrong ID: no ID") {
+						failedBlocks = append(failedBlocks, h)
+					}
+				}
 			}
+
 			for _, tx := range block.Block.Data.Txs {
 				sdkTx, err := chain.Encoding.TxConfig.TxDecoder()(tx)
 				if err != nil {
+					fmt.Printf("Failed to decode tx at height %d from %s \n", h, chain.ChainID)
 					return err
 				}
 				for _, msg := range sdkTx.GetMsgs() {
 					handleMsg(chain, msg, block.Block.Height, block.Block.Time, chain.ChainID)
 				}
 			}
+
 			<-sem
+			fmt.Printf("Queue has this many elements: %d \n", len(sem))
 			return nil
 		})
 	}
-	return eg.Wait()
-	// return nil
+	if err := eg.Wait(); err != nil {
+		return err
+	}
+	if len(failedBlocks) > 0 {
+		return QueryBlocks(chain, failedBlocks)
+	}
+	return nil
 }
 
-func makeBlockArrays(src, dst *relayer.Chain, srcStart, dstStart int64) ([]int64, []int64, error) {
+func makeBlockArray(src *relayer.Chain, srcStart int64) ([]int64, error) {
 	srcBlocks := []int64{}
-	dstBlocks := []int64{}
-	srcCurrent, dstCurrent, err := relayer.QueryLatestHeights(src, dst)
+	srcCurrent, err := src.QueryLatestHeight()
 	if err != nil {
-		return srcBlocks, dstBlocks, err
+		return srcBlocks, err
 	}
 	for i := srcStart; i < srcCurrent; i++ {
 		srcBlocks = append(srcBlocks, i)
 	}
-	for i := dstStart; i < dstCurrent; i++ {
-		dstBlocks = append(dstBlocks, i)
-	}
-	return srcBlocks, dstBlocks, nil
+	return srcBlocks, nil
 }
 
 func handleMsg(c *relayer.Chain, msg sdk.Msg, height int64, timestamp time.Time, chainid string) {
 	switch m := msg.(type) {
 	case *transfertypes.MsgTransfer:
 		done := c.UseSDKContext()
-		fmt.Printf("%s => [%s]@{%d} *transfertypes.MsgTransfer [%x]\n", timestamp.String(), chainid, height, m.GetSigners()[0].Bytes())
+		fmt.Printf("[%s] => [%s]@{%d} *transfertypes.MsgTransfer [%x]\n", timestamp.String(), chainid, height, m.GetSigners()[0].Bytes())
 		done()
 	case *channeltypes.MsgRecvPacket:
 		done := c.UseSDKContext()
-		fmt.Printf("%s => [%s]@{%d} *channeltypes.MsgRecvPacket [%x]\n", timestamp.String(), chainid, height, m.GetSigners()[0].Bytes())
+		fmt.Printf("[%s] => [%s]@{%d} *channeltypes.MsgRecvPacket [%x]\n", timestamp.String(), chainid, height, m.GetSigners()[0].Bytes())
 		done()
 	case *channeltypes.MsgTimeout:
 		done := c.UseSDKContext()
-		fmt.Printf("%s => [%s]@{%d} *channeltypes.MsgTimeout [%x]\n", timestamp.String(), chainid, height, m.GetSigners()[0].Bytes())
+		fmt.Printf("[%s] => [%s]@{%d} *channeltypes.MsgTimeout [%x]\n", timestamp.String(), chainid, height, m.GetSigners()[0].Bytes())
 		done()
 	case *channeltypes.MsgAcknowledgement:
 		done := c.UseSDKContext()
-		fmt.Printf("%s => [%s]@{%d} *channeltypes.MsgAcknowledgement [%x]\n", timestamp.String(), chainid, height, m.GetSigners()[0].Bytes())
+		fmt.Printf("[%s] => [%s]@{%d} *channeltypes.MsgAcknowledgement [%x]\n", timestamp.String(), chainid, height, m.GetSigners()[0].Bytes())
 		done()
 	default:
 	}

@@ -43,10 +43,10 @@ import (
 )
 
 var (
-	rtyAttNum = uint(5)
-	rtyAtt    = retry.Attempts(rtyAttNum)
-	rtyDel    = retry.Delay(time.Millisecond * 400)
-	rtyErr    = retry.LastErrorOnly(true)
+	RtyAttNum = uint(5)
+	RtyAtt    = retry.Attempts(RtyAttNum)
+	RtyDel    = retry.Delay(time.Millisecond * 400)
+	RtyErr    = retry.LastErrorOnly(true)
 )
 
 // Chain represents the necessary data for connecting to and indentifying a chain and its counterparites
