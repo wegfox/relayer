@@ -155,15 +155,15 @@ func QueryBlocks(chain *relayer.Chain, blocks []int64) error {
 					return err
 				}
 
-				err = insertTxRow(block.Block.Hash(), chain.ChainID, h, block.Block.Time)
+				err = insertTxRow(tx.Hash(), chain.ChainID, h, block.Block.Time)
 				if err != nil {
 					fmt.Printf("Failed to insert tx at Height: %d on chain %s. Err: %s", block.Block.Height, chain.ChainID, err.Error())
 				} else {
 					fmt.Printf("Wrote to database for height %d with %d txs \n", h, len(sdkTx.GetMsgs()))
 				}
 
-				for _, msg := range sdkTx.GetMsgs() {
-					handleMsg(chain, msg, block.Block.Height, block.Block.Time, chain.ChainID, block.Block.Hash())
+				for msgIndex, msg := range sdkTx.GetMsgs() {
+					handleMsg(chain, msg, msgIndex, block.Block.Height, block.Block.Time, chain.ChainID, block.Block.Hash())
 				}
 			}
 
@@ -193,12 +193,12 @@ func makeBlockArray(src *relayer.Chain, srcStart int64) ([]int64, error) {
 	return srcBlocks, nil
 }
 
-func handleMsg(c *relayer.Chain, msg sdk.Msg, height int64, timestamp time.Time, chainid string, hash []byte) {
+func handleMsg(c *relayer.Chain, msg sdk.Msg, msgIndex int, height int64, timestamp time.Time, chainid string, hash []byte) {
 	switch m := msg.(type) {
 	case *transfertypes.MsgTransfer:
 		done := c.UseSDKContext()
 
-		err := insertMsgTransferRow(hash, m.Token.Denom, m.SourceChannel, m.Route(), m.Token.Amount.String())
+		err := insertMsgTransferRow(hash, m.Token.Denom, m.SourceChannel, m.Route(), m.Token.Amount.String(), msgIndex)
 		if err != nil {
 			fmt.Printf("Failed to insert MsgTransfer. Height: %d Err: %s", height, err.Error())
 		} else {
@@ -211,7 +211,7 @@ func handleMsg(c *relayer.Chain, msg sdk.Msg, height int64, timestamp time.Time,
 		done := c.UseSDKContext()
 
 		err := insertMsgRecvPacketRow(m.Packet.Sequence, hash, m.Signer, m.Packet.SourceChannel,
-			m.Packet.DestinationChannel, m.Packet.SourcePort, m.Packet.DestinationPort)
+			m.Packet.DestinationChannel, m.Packet.SourcePort, m.Packet.DestinationPort, msgIndex)
 		if err != nil {
 			fmt.Printf("Failed to insert MsgRecvPacket. Sequence: %d Err: %s", m.Packet.Sequence, err.Error())
 		} else {
@@ -224,7 +224,7 @@ func handleMsg(c *relayer.Chain, msg sdk.Msg, height int64, timestamp time.Time,
 		done := c.UseSDKContext()
 
 		err := insertMsgTimeoutRow(m.Packet.Sequence, hash, m.Signer, m.Packet.SourceChannel,
-			m.Packet.DestinationChannel, m.Packet.SourcePort, m.Packet.DestinationPort)
+			m.Packet.DestinationChannel, m.Packet.SourcePort, m.Packet.DestinationPort, msgIndex)
 		if err != nil {
 			fmt.Printf("Failed to insert MsgTimeout. Sequence: %d Err: %s", m.Packet.Sequence, err.Error())
 		} else {
@@ -237,7 +237,7 @@ func handleMsg(c *relayer.Chain, msg sdk.Msg, height int64, timestamp time.Time,
 		done := c.UseSDKContext()
 
 		err := insertMsgAckRow(m.Packet.Sequence, hash, m.Signer, m.Packet.SourceChannel,
-			m.Packet.DestinationChannel, m.Packet.SourcePort, m.Packet.DestinationPort)
+			m.Packet.DestinationChannel, m.Packet.SourcePort, m.Packet.DestinationPort, msgIndex)
 		if err != nil {
 			fmt.Printf("Failed to insert MsgAck. Sequence: %d Err: %s", m.Packet.Sequence, err.Error())
 		} else {
@@ -266,14 +266,14 @@ func insertTxRow(hash []byte, cID string, height int64, timestamp time.Time) err
 	return nil
 }
 
-func insertMsgTransferRow(hash []byte, denom, srcChan, route, amount string) error {
-	stmt, err := db.Prepare("INSERT INTO msg_transfer(tx_hash, amount, denom, src_chan, route) VALUES($1, $2, $3, $4, $5)")
+func insertMsgTransferRow(hash []byte, denom, srcChan, route, amount string, msgIndex int) error {
+	stmt, err := db.Prepare("INSERT INTO msg_transfer(tx_hash, msg_index, amount, denom, src_chan, route) VALUES($1, $2, $3, $4, $5, $6)")
 	if err != nil {
 		fmt.Println("Fail to create query")
 		return err
 	}
 
-	_, err = stmt.Exec(hash, amount, denom, srcChan, route)
+	_, err = stmt.Exec(hash, msgIndex, amount, denom, srcChan, route)
 	if err != nil {
 		fmt.Println("Fail to execute query")
 		return err
@@ -282,14 +282,14 @@ func insertMsgTransferRow(hash []byte, denom, srcChan, route, amount string) err
 	return nil
 }
 
-func insertMsgTimeoutRow(sequence uint64, hash []byte, signer, srcChan, dstChan, srcPort, dstPort string) error {
-	stmt, err := db.Prepare("INSERT INTO msg_timeout(msg_sequence, tx_hash, signer, src_chan, dst_chan, src_port, dst_port) VALUES($1, $2, $3, $4, $5, $6, $7)")
+func insertMsgTimeoutRow(sequence uint64, hash []byte, signer, srcChan, dstChan, srcPort, dstPort string, msgIndex int) error {
+	stmt, err := db.Prepare("INSERT INTO msg_timeout(tx_hash, msg_index, signer, src_chan, dst_chan, src_port, dst_port) VALUES($1, $2, $3, $4, $5, $6, $7)")
 	if err != nil {
 		fmt.Println("Fail to create query")
 		return err
 	}
 
-	_, err = stmt.Exec(sequence, hash, signer, srcChan, dstChan, srcPort, dstPort)
+	_, err = stmt.Exec(hash, msgIndex, signer, srcChan, dstChan, srcPort, dstPort)
 	if err != nil {
 		fmt.Println("Fail to execute query")
 		return err
@@ -298,14 +298,14 @@ func insertMsgTimeoutRow(sequence uint64, hash []byte, signer, srcChan, dstChan,
 	return nil
 }
 
-func insertMsgRecvPacketRow(sequence uint64, hash []byte, signer, srcChan, dstChan, srcPort, dstPort string) error {
-	stmt, err := db.Prepare("INSERT INTO msg_recvpacket(msg_sequence, tx_hash, signer, src_chan, dst_chan, src_port, dst_port) VALUES($1, $2, $3, $4, $5, $6, $7)")
+func insertMsgRecvPacketRow(sequence uint64, hash []byte, signer, srcChan, dstChan, srcPort, dstPort string, msgIndex int) error {
+	stmt, err := db.Prepare("INSERT INTO msg_recvpacket(tx_hash, msg_index, signer, src_chan, dst_chan, src_port, dst_port) VALUES($1, $2, $3, $4, $5, $6, $7)")
 	if err != nil {
 		fmt.Println("Fail to create query")
 		return err
 	}
 
-	_, err = stmt.Exec(sequence, hash, signer, srcChan, dstChan, srcPort, dstPort)
+	_, err = stmt.Exec(hash, msgIndex, signer, srcChan, dstChan, srcPort, dstPort)
 	if err != nil {
 		fmt.Println("Fail to execute query")
 		return err
@@ -314,14 +314,14 @@ func insertMsgRecvPacketRow(sequence uint64, hash []byte, signer, srcChan, dstCh
 	return nil
 }
 
-func insertMsgAckRow(sequence uint64, hash []byte, signer, srcChan, dstChan, srcPort, dstPort string) error {
-	stmt, err := db.Prepare("INSERT INTO msg_ack(msg_sequence, tx_hash, signer, src_chan, dst_chan, src_port, dst_port) VALUES($1, $2, $3, $4, $5, $6, $7)")
+func insertMsgAckRow(sequence uint64, hash []byte, signer, srcChan, dstChan, srcPort, dstPort string, msgIndex int) error {
+	stmt, err := db.Prepare("INSERT INTO msg_ack(tx_hash, msg_index, signer, src_chan, dst_chan, src_port, dst_port) VALUES($1, $2, $3, $4, $5, $6, $7)")
 	if err != nil {
 		fmt.Println("Fail to create query")
 		return err
 	}
 
-	_, err = stmt.Exec(sequence, hash, signer, srcChan, dstChan, srcPort, dstPort)
+	_, err = stmt.Exec(hash, msgIndex, signer, srcChan, dstChan, srcPort, dstPort)
 	if err != nil {
 		fmt.Println("Fail to execute query")
 		return err
