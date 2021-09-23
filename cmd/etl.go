@@ -329,3 +329,12 @@ func insertMsgAckRow(hash []byte, signer, srcChan, dstChan, srcPort, dstPort str
 
 	return nil
 }
+
+func GetLastStoredBlock() (int64, error) {
+	var height int64
+	err := db.QueryRow("SELECT MAX(block_height) FROM txs").Scan(&height)
+	if err != nil {
+		return 0, err
+	}
+	return height, nil
+}
