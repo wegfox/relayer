@@ -50,15 +50,13 @@ killall sommelier &> /dev/null
 chainid0=ibc-0
 chainid1=ibc-1
 chainid2=ibc-2
-rlyid0=rly-0
-rlyid1=rly-1
 
 # Spin up the 3 chain instances
 echo "Generating chain configurations..."
 mkdir -p $CONFIG_DATA && cd $CONFIG_DATA && cd ../
-./scripts/one-chain gaiad     $chainid0 ./data 26657 26656 6060 9090
-./scripts/one-chain sommelier $chainid1 ./data 26557 26556 6061 9900
-./scripts/one-chain gaiad     $chainid2 ./data 25557 25556 6062 9990
+./scripts/one-chain sommelier     $chainid0 ./data 26657 26656 6060 9090 1122
+./scripts/one-chain gaiad         $chainid1 ./data 26557 26556 6061 9900 1212
+./scripts/one-chain sommelier     $chainid2 ./data 25557 25556 6062 9990 2211
 
 [ -f $CONFIG_DATA/$chainid0.log ] && echo "$chainid0 initialized. Watch file $CONFIG_DATA/$chainid0.log to see its execution."
 [ -f $CONFIG_DATA/$chainid1.log ] && echo "$chainid1 initialized. Watch file $CONFIG_DATA/$chainid1.log to see its execution."

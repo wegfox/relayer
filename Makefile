@@ -92,6 +92,10 @@ get-somm:
 build-somm:
 	@./scripts/build-somm
 
+get-gaia-demo:
+	@mkdir -p ./chain-code/
+	@git clone --branch jack/vega-rc2 git@github.com:cosmos/gaia.git ./chain-code/gaia
+
 get-gaia:
 	@mkdir -p ./chain-code/
 	@git clone --branch $(GAIA_VERSION) git@github.com:cosmos/gaia.git ./chain-code/gaia
