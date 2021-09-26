@@ -19,7 +19,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
@@ -68,14 +67,15 @@ func etlCmd() *cobra.Command {
 // rly etl qos hubosmo {start_height_cosmoshub-4} {start_height_osmosis-1} {sql_connection_string}
 func qosCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "quality-of-servce [chain-id] [src_start]",
+		Use:     "quality-of-servce [chain-id]",
 		Aliases: []string{"qos"},
 		Short:   "query denomination traces for a given network by chain ID",
-		Args:    cobra.ExactArgs(2),
+		Args:    cobra.ExactArgs(1),
 		Example: strings.TrimSpace(fmt.Sprintf(`
-$ %s query ibc-denoms ibc-0
-$ %s q ibc-denoms ibc-0`,
-			appName, appName,
+$ %s etl qos cosmoshub-4 -c "host=127.0.0.1 port=5432 user=anon dbname=relayer sslmode=disable" --height 0
+$ %s etl quality-of-service osmosis-1 --height 5000000
+$ %s etl qos sentinelhub-2 --conn "host=127.0.0.1 port=5432 user=anon dbname=relayer sslmode=disable"`,
+			appName, appName, appName,
 		)),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			chain, err := config.Chains.Get(args[0])
@@ -97,14 +97,19 @@ $ %s q ibc-denoms ibc-0`,
 			}
 			fmt.Println("Successfully connected to db instance.")
 
-			srcStart, err := strconv.ParseInt(args[1], 10, 64)
-			if err != nil {
-				return err
+			srcStart, _ := cmd.Flags().GetInt64("height")
+			if srcStart == 0 {
+				srcStart, _ = GetLastStoredBlock(chain.ChainID)
 			}
+
+			//srcStart, err := strconv.ParseInt(args[1], 10, 64)
+			//if err != nil {
+			//	return err
+			//}
 
 			srcBlocks, err := makeBlockArray(chain, srcStart)
 			if err != nil {
-				return nil
+				return err
 			}
 			fmt.Printf("chain-id[%s] startBlock(%d) endBlock(%d)\n", chain.ChainID, srcBlocks[0], srcBlocks[len(srcBlocks)-1])
 
@@ -112,7 +117,8 @@ $ %s q ibc-denoms ibc-0`,
 		},
 	}
 
-	//TODO add proper default value
+	cmd.Flags().Int64("height", 0, "block height which you wish to begin the query from")
+	//TODO add proper default value for connection string
 	cmd.Flags().StringP("conn", "c", "host=127.0.0.1 port=5432 user=anon dbname=relayer sslmode=disable", "database connection string")
 	return cmd
 }
@@ -125,9 +131,7 @@ func QueryBlocks(chain *relayer.Chain, blocks []int64) error {
 
 	for _, h := range blocks {
 		h := h
-		//fmt.Println(h)
 		sem <- struct{}{}
-		//fmt.Printf("Queue has this many elements: %d \n", len(sem))
 
 		eg.Go(func() error {
 			block, err := chain.Client.Block(context.Background(), &h)
@@ -168,7 +172,6 @@ func QueryBlocks(chain *relayer.Chain, blocks []int64) error {
 			}
 
 			<-sem
-			fmt.Printf("Queue has this many elements: %d \n", len(sem))
 			return nil
 		})
 	}
@@ -330,9 +333,9 @@ func insertMsgAckRow(hash []byte, signer, srcChan, dstChan, srcPort, dstPort str
 	return nil
 }
 
-func GetLastStoredBlock() (int64, error) {
+func GetLastStoredBlock(chainId string) (int64, error) {
 	var height int64
-	err := db.QueryRow("SELECT MAX(block_height) FROM txs").Scan(&height)
+	err := db.QueryRow("SELECT MAX(block_height) FROM txs WHERE chainid=?", chainId).Scan(&height)
 	if err != nil {
 		return 0, err
 	}
