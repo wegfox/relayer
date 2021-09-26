@@ -60,12 +60,11 @@ func etlCmd() *cobra.Command {
 // // // iterate over all msgs in the tx
 // // // // write a row to a postgres table for each transfertypes.MsgTransfer, channeltypes.MsgRecvPacket,channeltypes.MsgTimeout, channeltypes.MsgAcknowledgement
 
-// rly etl qos hubosmo {start_height_cosmoshub-4} {start_height_osmosis-1} {sql_connection_string}
 func qosCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "quality-of-servce [chain-id]",
 		Aliases: []string{"qos"},
-		Short:   "query denomination traces for a given network by chain ID",
+		Short:   "extract pertinent IBC/tx data from a chain and load into a postgres db",
 		Args:    cobra.ExactArgs(1),
 		Example: strings.TrimSpace(fmt.Sprintf(`
 $ %s etl qos cosmoshub-4 -c "host=127.0.0.1 port=5432 user=anon dbname=relayer sslmode=disable" --height 0
@@ -88,21 +87,18 @@ $ %s etl qos sentinelhub-2 --conn "host=127.0.0.1 port=5432 user=anon dbname=rel
 			}
 			defer db.Close()
 
-			alive := db.Ping()
-			if alive != nil {
+			err = db.Ping()
+			if err != nil {
 				return fmt.Errorf("Failed to connect to db, ensure db server is running & check conn string. Err: %s \n", err.Error())
 			}
 			fmt.Println("Successfully connected to db instance.")
 
+			// If the user does not provide a height attempt to use the last height stored in the DB,
+			// if there are no previous entries in db then start from height 0
 			srcStart, _ := cmd.Flags().GetInt64("height")
 			if srcStart == 0 {
 				srcStart, _ = GetLastStoredBlock(chain.ChainID, db)
 			}
-
-			//srcStart, err := strconv.ParseInt(args[1], 10, 64)
-			//if err != nil {
-			//	return err
-			//}
 
 			srcBlocks, err := makeBlockArray(chain, srcStart)
 			if err != nil {
@@ -145,6 +141,8 @@ func QueryBlocks(chain *relayer.Chain, blocks []int64, db *sql.DB) error {
 				})); err != nil {
 					if strings.Contains(err.Error(), "wrong ID: no ID") {
 						failedBlocks = append(failedBlocks, h)
+					} else {
+						fmt.Printf("Failed to get block at height %d for chain %s. Err: %s \n", h, chain.ChainID, err.Error())
 					}
 				}
 			}
@@ -152,8 +150,7 @@ func QueryBlocks(chain *relayer.Chain, blocks []int64, db *sql.DB) error {
 			for _, tx := range block.Block.Data.Txs {
 				sdkTx, err := chain.Encoding.TxConfig.TxDecoder()(tx)
 				if err != nil {
-					fmt.Printf("Failed to decode tx at height %d from %s \n", h, chain.ChainID)
-					return err
+					return fmt.Errorf("Failed to decode tx at height %d from %s. Err: %s \n", h, chain.ChainID, err.Error())
 				}
 
 				err = insertTxRow(tx.Hash(), chain.ChainID, h, block.Block.Time, db)
@@ -164,7 +161,7 @@ func QueryBlocks(chain *relayer.Chain, blocks []int64, db *sql.DB) error {
 				}
 
 				for msgIndex, msg := range sdkTx.GetMsgs() {
-					handleMsg(chain, msg, msgIndex, block.Block.Height, block.Block.Time, chain.ChainID, tx.Hash(), db)
+					handleMsg(chain, msg, msgIndex, block.Block.Height, tx.Hash(), db)
 				}
 			}
 
@@ -182,7 +179,7 @@ func QueryBlocks(chain *relayer.Chain, blocks []int64, db *sql.DB) error {
 }
 
 func makeBlockArray(src *relayer.Chain, srcStart int64) ([]int64, error) {
-	srcBlocks := []int64{}
+	srcBlocks := make([]int64, 0)
 	srcCurrent, err := src.QueryLatestHeight()
 	if err != nil {
 		return srcBlocks, err
@@ -193,7 +190,7 @@ func makeBlockArray(src *relayer.Chain, srcStart int64) ([]int64, error) {
 	return srcBlocks, nil
 }
 
-func handleMsg(c *relayer.Chain, msg sdk.Msg, msgIndex int, height int64, timestamp time.Time, chainid string, hash []byte, db *sql.DB) {
+func handleMsg(c *relayer.Chain, msg sdk.Msg, msgIndex int, height int64, hash []byte, db *sql.DB) {
 	switch m := msg.(type) {
 	case *transfertypes.MsgTransfer:
 		done := c.UseSDKContext()
@@ -201,11 +198,8 @@ func handleMsg(c *relayer.Chain, msg sdk.Msg, msgIndex int, height int64, timest
 		err := insertMsgTransferRow(hash, m.Token.Denom, m.SourceChannel, m.Route(), m.Token.Amount.String(), msgIndex, db)
 		if err != nil {
 			fmt.Printf("Failed to insert MsgTransfer. Index: %d Height: %d Err: %s", msgIndex, height, err.Error())
-		} else {
-			fmt.Printf("Wrote to database for height %d  \n", height)
 		}
 
-		fmt.Printf("[%s] => [%s]@{%d} *transfertypes.MsgTransfer [%x]\n", timestamp.String(), chainid, height, hash)
 		done()
 	case *channeltypes.MsgRecvPacket:
 		done := c.UseSDKContext()
@@ -214,11 +208,8 @@ func handleMsg(c *relayer.Chain, msg sdk.Msg, msgIndex int, height int64, timest
 			m.Packet.DestinationChannel, m.Packet.SourcePort, m.Packet.DestinationPort, msgIndex, db)
 		if err != nil {
 			fmt.Printf("Failed to insert MsgRecvPacket.Index: %d Height: %d Err: %s", msgIndex, height, err.Error())
-		} else {
-			fmt.Printf("Wrote to database for height %d \n", height)
 		}
 
-		fmt.Printf("[%s] => [%s]@{%d} *channeltypes.MsgRecvPacket [%x]\n", timestamp.String(), chainid, height, hash)
 		done()
 	case *channeltypes.MsgTimeout:
 		done := c.UseSDKContext()
@@ -227,11 +218,8 @@ func handleMsg(c *relayer.Chain, msg sdk.Msg, msgIndex int, height int64, timest
 			m.Packet.DestinationChannel, m.Packet.SourcePort, m.Packet.DestinationPort, msgIndex, db)
 		if err != nil {
 			fmt.Printf("Failed to insert MsgTimeout. Index: %d Height: %d Err: %s", msgIndex, height, err.Error())
-		} else {
-			fmt.Printf("Wrote to database for height %d\n", height)
 		}
 
-		fmt.Printf("[%s] => [%s]@{%d} *channeltypes.MsgTimeout [%x]\n", timestamp.String(), chainid, height, hash)
 		done()
 	case *channeltypes.MsgAcknowledgement:
 		done := c.UseSDKContext()
@@ -240,11 +228,8 @@ func handleMsg(c *relayer.Chain, msg sdk.Msg, msgIndex int, height int64, timest
 			m.Packet.DestinationChannel, m.Packet.SourcePort, m.Packet.DestinationPort, msgIndex, db)
 		if err != nil {
 			fmt.Printf("Failed to insert MsgAck. Index: %d Height: %d Err: %s", msgIndex, height, err.Error())
-		} else {
-			fmt.Printf("Wrote to database for height %d  \n", height)
 		}
 
-		fmt.Printf("[%s] => [%s]@{%d} *channeltypes.MsgAcknowledgement [%x]\n", timestamp.String(), chainid, height, hash)
 		done()
 	default:
 	}
@@ -253,14 +238,12 @@ func handleMsg(c *relayer.Chain, msg sdk.Msg, msgIndex int, height int64, timest
 func insertTxRow(hash []byte, cID string, height int64, timestamp time.Time, db *sql.DB) error {
 	stmt, err := db.Prepare("INSERT INTO txs(hash, block_time, chainid, block_height) VALUES($1, $2, $3, $4)")
 	if err != nil {
-		fmt.Println("Fail to create query")
-		return err
+		return fmt.Errorf("Fail to create query for new tx. Err: %s \n", err.Error())
 	}
 
 	_, err = stmt.Exec(hash, timestamp, cID, height)
 	if err != nil {
-		fmt.Println("Fail to execute query")
-		return err
+		return fmt.Errorf("Fail to execute query for new tx. Err: %s \n", err.Error())
 	}
 
 	return nil
@@ -269,14 +252,12 @@ func insertTxRow(hash []byte, cID string, height int64, timestamp time.Time, db 
 func insertMsgTransferRow(hash []byte, denom, srcChan, route, amount string, msgIndex int, db *sql.DB) error {
 	stmt, err := db.Prepare("INSERT INTO msg_transfer(tx_hash, msg_index, amount, denom, src_chan, route) VALUES($1, $2, $3, $4, $5, $6)")
 	if err != nil {
-		fmt.Println("Fail to create query")
-		return err
+		return fmt.Errorf("Fail to create query for MsgTransfer. Err: %s \n", err.Error())
 	}
 
 	_, err = stmt.Exec(hash, msgIndex, amount, denom, srcChan, route)
 	if err != nil {
-		fmt.Println("Fail to execute query")
-		return err
+		return fmt.Errorf("Fail to execute query for MsgTransfer. Err: %s \n", err.Error())
 	}
 
 	return nil
@@ -285,14 +266,12 @@ func insertMsgTransferRow(hash []byte, denom, srcChan, route, amount string, msg
 func insertMsgTimeoutRow(hash []byte, signer, srcChan, dstChan, srcPort, dstPort string, msgIndex int, db *sql.DB) error {
 	stmt, err := db.Prepare("INSERT INTO msg_timeout(tx_hash, msg_index, signer, src_chan, dst_chan, src_port, dst_port) VALUES($1, $2, $3, $4, $5, $6, $7)")
 	if err != nil {
-		fmt.Println("Fail to create query")
-		return err
+		return fmt.Errorf("Fail to create query for MsgTimeout. Err: %s \n", err.Error())
 	}
 
 	_, err = stmt.Exec(hash, msgIndex, signer, srcChan, dstChan, srcPort, dstPort)
 	if err != nil {
-		fmt.Println("Fail to execute query")
-		return err
+		return fmt.Errorf("Fail to execute query for MsgTimeout. Err: %s \n", err.Error())
 	}
 
 	return nil
@@ -301,14 +280,12 @@ func insertMsgTimeoutRow(hash []byte, signer, srcChan, dstChan, srcPort, dstPort
 func insertMsgRecvPacketRow(hash []byte, signer, srcChan, dstChan, srcPort, dstPort string, msgIndex int, db *sql.DB) error {
 	stmt, err := db.Prepare("INSERT INTO msg_recvpacket(tx_hash, msg_index, signer, src_chan, dst_chan, src_port, dst_port) VALUES($1, $2, $3, $4, $5, $6, $7)")
 	if err != nil {
-		fmt.Println("Fail to create query")
-		return err
+		return fmt.Errorf("Fail to create query for MsgRecvPacket. Err: %s \n", err.Error())
 	}
 
 	_, err = stmt.Exec(hash, msgIndex, signer, srcChan, dstChan, srcPort, dstPort)
 	if err != nil {
-		fmt.Println("Fail to execute query")
-		return err
+		return fmt.Errorf("Fail to execute query for MsgRecvPacket. Err: %s \n", err.Error())
 	}
 
 	return nil
@@ -317,14 +294,12 @@ func insertMsgRecvPacketRow(hash []byte, signer, srcChan, dstChan, srcPort, dstP
 func insertMsgAckRow(hash []byte, signer, srcChan, dstChan, srcPort, dstPort string, msgIndex int, db *sql.DB) error {
 	stmt, err := db.Prepare("INSERT INTO msg_ack(tx_hash, msg_index, signer, src_chan, dst_chan, src_port, dst_port) VALUES($1, $2, $3, $4, $5, $6, $7)")
 	if err != nil {
-		fmt.Println("Fail to create query")
-		return err
+		return fmt.Errorf("Fail to create query for MsgAck. Err: %s \n", err.Error())
 	}
 
 	_, err = stmt.Exec(hash, msgIndex, signer, srcChan, dstChan, srcPort, dstPort)
 	if err != nil {
-		fmt.Println("Fail to execute query")
-		return err
+		return fmt.Errorf("Fail to execute query for MsgAck. Err: %s \n", err.Error())
 	}
 
 	return nil
