@@ -59,6 +59,57 @@ func etlCmd() *cobra.Command {
 // // decode all txs in the block and iterate
 // // // iterate over all msgs in the tx
 // // // // write a row to a postgres table for each transfertypes.MsgTransfer, channeltypes.MsgRecvPacket,channeltypes.MsgTimeout, channeltypes.MsgAcknowledgement
+func qosForPeriod() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:     "quality-of-servce [path]",
+		Aliases: []string{"qos"},
+		Short:   "retrieve QoS metrics on a given path for a specified date-time period",
+		Args:    cobra.ExactArgs(1),
+		Example: strings.TrimSpace(fmt.Sprintf(`
+$ %s q quality-of-service --start YYYY-MM-DD HH:MM:SS --end YYYY-MM-DD HH:MM:SS`,
+			appName,
+		)),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			const driverName = "postgres"
+			chain, err := config.Chains.Get(args[0])
+			if err != nil {
+				return err
+			}
+
+			connString, _ := cmd.Flags().GetString("conn")
+			fmt.Printf("Connecting to database with conn string: %s \n", connString)
+			db, err := connectToDatabase(driverName, connString)
+			if err != nil {
+				return err
+			}
+			defer db.Close()
+			fmt.Println("Successfully connected to db instance.")
+
+			start, _ := cmd.Flags().GetString("start")
+			strtTime, err := time.Parse("2006-01-02 15:04:05", start)
+			if err != nil {
+				return err
+			}
+
+			end, _ := cmd.Flags().GetString("end")
+			endTime, err := time.Parse("2006-01-02 15:04:05", end)
+			if err != nil {
+				return err
+			}
+
+			// query against database for all txs in s<=T<=e
+			// calculate QoS
+			fmt.Println(chain.ChainID + " --- " + strtTime.String() + " --- " + endTime.String())
+
+			return nil
+		},
+	}
+
+	cmd.Flags().StringP("conn", "c", "host=127.0.0.1 port=5432 user=anon dbname=relayer sslmode=disable", "database connection string")
+	cmd.Flags().StringP("start", "s", time.Now().AddDate(0, -1, 0).Format("2006-01-02 15:04:05"), "start date-time for QoS query")
+	cmd.Flags().StringP("end", "e", time.Now().Format("2006-01-02 15:04:05"), "end date-time for QoS query")
+	return cmd
+}
 
 func qosCmd() *cobra.Command {
 	cmd := &cobra.Command{
@@ -73,31 +124,26 @@ $ %s etl qos sentinelhub-2 --conn "host=127.0.0.1 port=5432 user=anon dbname=rel
 			appName, appName, appName,
 		)),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			const driverName = "postgres"
 			chain, err := config.Chains.Get(args[0])
 			if err != nil {
 				return err
 			}
 
-			const driverName = "postgres"
 			connString, _ := cmd.Flags().GetString("conn")
 			fmt.Printf("Connecting to database with conn string: %s \n", connString)
-			db, err := sql.Open(driverName, connString)
+			db, err := connectToDatabase(driverName, connString)
 			if err != nil {
-				return fmt.Errorf("Failed to connect to db, ensure db server is running & check conn string. Err: %s \n", err.Error())
+				return err
 			}
 			defer db.Close()
-
-			err = db.Ping()
-			if err != nil {
-				return fmt.Errorf("Failed to connect to db, ensure db server is running & check conn string. Err: %s \n", err.Error())
-			}
 			fmt.Println("Successfully connected to db instance.")
 
-			// If the user does not provide a height attempt to use the last height stored in the DB,
-			// if there are no previous entries in db then start from height 0
+			// If the user does not provide a height, attempt to use the last height stored in the DB
+			// & if there are no previous entries in db then start from height 0
 			srcStart, _ := cmd.Flags().GetInt64("height")
 			if srcStart == 0 {
-				srcStart, _ = GetLastStoredBlock(chain.ChainID, db)
+				srcStart, _ = getLastStoredBlock(chain.ChainID, db)
 			}
 
 			srcBlocks, err := makeBlockArray(chain, srcStart)
@@ -176,6 +222,18 @@ func QueryBlocks(chain *relayer.Chain, blocks []int64, db *sql.DB) error {
 		return QueryBlocks(chain, failedBlocks, db)
 	}
 	return nil
+}
+
+func connectToDatabase(driver, connString string) (*sql.DB, error) {
+	db, err := sql.Open(driver, connString)
+	if err != nil {
+		return nil, fmt.Errorf("Failed to open db, ensure db server is running & check conn string. Err: %s \n", err.Error())
+	}
+	err = db.Ping()
+	if err != nil {
+		return nil, fmt.Errorf("Failed to connect to db, ensure db server is running & check conn string. Err: %s \n", err.Error())
+	}
+	return db, nil
 }
 
 func makeBlockArray(src *relayer.Chain, srcStart int64) ([]int64, error) {
@@ -305,11 +363,15 @@ func insertMsgAckRow(hash []byte, signer, srcChan, dstChan, srcPort, dstPort str
 	return nil
 }
 
-func GetLastStoredBlock(chainId string, db *sql.DB) (int64, error) {
+func getLastStoredBlock(chainId string, db *sql.DB) (int64, error) {
 	var height int64
 	err := db.QueryRow("SELECT MAX(block_height) FROM txs WHERE chainid=?", chainId).Scan(&height)
 	if err != nil {
 		return 0, err
 	}
 	return height, nil
+}
+
+func getTxsForPeriod() {
+
 }
