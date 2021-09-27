@@ -41,6 +41,7 @@ func etlCmd() *cobra.Command {
 
 	cmd.AddCommand(
 		qosCmd(),
+		qosForPeriod(),
 	)
 
 	return cmd
@@ -61,8 +62,8 @@ func etlCmd() *cobra.Command {
 // // // // write a row to a postgres table for each transfertypes.MsgTransfer, channeltypes.MsgRecvPacket,channeltypes.MsgTimeout, channeltypes.MsgAcknowledgement
 func qosForPeriod() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "quality-of-servce [path]",
-		Aliases: []string{"qos"},
+		Use:     "quality-of-servce-period [path]",
+		Aliases: []string{"qosp"},
 		Short:   "retrieve QoS metrics on a given path for a specified date-time period",
 		Args:    cobra.ExactArgs(1),
 		Example: strings.TrimSpace(fmt.Sprintf(`
@@ -100,6 +101,16 @@ $ %s q quality-of-service --start YYYY-MM-DD HH:MM:SS --end YYYY-MM-DD HH:MM:SS`
 			// query against database for all txs in s<=T<=e
 			// calculate QoS
 			fmt.Println(chain.ChainID + " --- " + strtTime.String() + " --- " + endTime.String())
+
+			//txs, err := getTxsForPeriod(chain.ChainID, db, strtTime, endTime)
+			//if err != nil {
+			//	return err
+			//}
+			//
+			//for _, tx := range txs {
+			//	fmt.Printf("Tx hash: %s \n Block Time: %s \n Height: %d \n Chain: %s \n", tx.hash, tx.blockTime, tx.height, tx.chainId)
+			//	fmt.Println("----------------------------------------------")
+			//}
 
 			return nil
 		},
@@ -372,6 +383,47 @@ func getLastStoredBlock(chainId string, db *sql.DB) (int64, error) {
 	return height, nil
 }
 
-func getTxsForPeriod() {
+func getTxsForPeriod(chainId string, db *sql.DB, start, end time.Time) ([]Tx, error) {
+	rows, err := db.Query("SELECT * FROM txs WHERE block_time >= $1 AND block_time < $2 AND chainid = $3",
+		start.Format("2006-01-02 15:04:05"), end.Format("2006-01-02 15:04:05"), chainId)
 
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	txs := make([]Tx, 0)
+	for rows.Next() {
+		var (
+			hash      []byte
+			blockTime string
+			chain     string
+			height    int64
+		)
+
+		err = rows.Scan(&hash, &blockTime, &chain, &height)
+		if err != nil {
+			return nil, err
+		}
+
+		txs = append(txs, Tx{
+			hash:      hash,
+			blockTime: blockTime,
+			chainId:   chain,
+			height:    height,
+		})
+	}
+
+	if rows.Err() != nil {
+		return nil, err
+	}
+
+	return txs, nil
+}
+
+type Tx struct {
+	hash      []byte
+	blockTime string
+	chainId   string
+	height    int64
 }
