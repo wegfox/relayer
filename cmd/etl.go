@@ -20,6 +20,7 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/avast/retry-go"
@@ -179,7 +180,10 @@ $ %s etl qos sentinelhub-2 --conn "host=127.0.0.1 port=5432 user=anon dbname=rel
 
 func QueryBlocks(chain *relayer.Chain, blocks []int64, db *sql.DB) error {
 	fmt.Println("starting block queries for", chain.ChainID)
-	var eg errgroup.Group
+	var (
+		eg    errgroup.Group
+		mutex sync.Mutex
+	)
 	failedBlocks := make([]int64, 0)
 	sem := make(chan struct{}, 100)
 
@@ -201,9 +205,13 @@ func QueryBlocks(chain *relayer.Chain, blocks []int64, db *sql.DB) error {
 					chain.LogRetryGetBlock(n, err, h)
 				})); err != nil {
 					if strings.Contains(err.Error(), "wrong ID: no ID") {
+						mutex.Lock()
 						failedBlocks = append(failedBlocks, h)
+						mutex.Unlock()
+						return err
 					} else {
 						fmt.Printf("Failed to get block at height %d for chain %s. Err: %s \n", h, chain.ChainID, err.Error())
+						return err
 					}
 				}
 			}
