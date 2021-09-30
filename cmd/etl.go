@@ -150,10 +150,14 @@ $ %s etl qos sentinelhub-2 --conn "host=127.0.0.1 port=5432 user=anon dbname=rel
 			defer db.Close()
 			fmt.Println("Successfully connected to db instance.")
 
+			if err = createTables(db); err != nil {
+				return err
+			}
+
 			// If the user does not provide a height, attempt to use the last height stored in the DB
-			// & if there are no previous entries in db then start from height 0
+			// & if there are no previous entries in db then start from height 1
 			srcStart, _ := cmd.Flags().GetInt64("height")
-			if srcStart == 0 {
+			if srcStart == 1 {
 				srcStart, _ = getLastStoredBlock(chain.ChainID, db)
 			}
 
@@ -167,7 +171,7 @@ $ %s etl qos sentinelhub-2 --conn "host=127.0.0.1 port=5432 user=anon dbname=rel
 		},
 	}
 
-	cmd.Flags().Int64("height", 0, "block height which you wish to begin the query from")
+	cmd.Flags().Int64("height", 1, "block height which you wish to begin the query from")
 	//TODO add proper default value for connection string
 	cmd.Flags().StringP("conn", "c", "host=127.0.0.1 port=5432 user=anon dbname=relayer sslmode=disable", "database connection string")
 	return cmd
@@ -247,6 +251,77 @@ func connectToDatabase(driver, connString string) (*sql.DB, error) {
 	return db, nil
 }
 
+func createTables(db *sql.DB) error {
+	txs := "CREATE TABLE IF NOT EXISTS txs ( " +
+		"hash bytea PRIMARY KEY, " +
+		"block_time TIMESTAMP NOT NULL, " +
+		"chainid TEXT NOT NULL, " +
+		"block_height BIGINT NOT NULL " +
+		")"
+
+	transfer := "CREATE TABLE IF NOT EXISTS msg_transfer (" +
+		"tx_hash bytea," +
+		"msg_index INT," +
+		"signer TEXT NOT NULL," +
+		"sender TEXT NOT NULL," +
+		"receiver TEXT NOT NULL," +
+		"amount TEXT NOT NULL," +
+		"denom TEXT NOT NULL," +
+		"src_chan TEXT NOT NULL," +
+		"src_port TEXT NOT NULL," +
+		"route TEXT NOT NULL," +
+		"PRIMARY KEY (tx_hash, msg_index)," +
+		"FOREIGN KEY (tx_hash) REFERENCES txs(hash) ON DELETE CASCADE" +
+		")"
+
+	recvpacket := "CREATE TABLE IF NOT EXISTS msg_recvpacket ( " +
+		"tx_hash bytea," +
+		"msg_index INT," +
+		"signer TEXT NOT NULL," +
+		"src_chan TEXT NOT NULL," +
+		"dst_chan TEXT NOT NULL," +
+		"src_port TEXT NOT NULL," +
+		"dst_port TEXT NOT NULL," +
+		"PRIMARY KEY (tx_hash, msg_index)," +
+		"FOREIGN KEY (tx_hash) REFERENCES txs(hash) ON DELETE CASCADE" +
+		")"
+
+	timeout := "CREATE TABLE IF NOT EXISTS msg_timeout (" +
+		"tx_hash bytea," +
+		"msg_index INT," +
+		"signer TEXT NOT NULL," +
+		"src_chan TEXT NOT NULL," +
+		"dst_chan TEXT NOT NULL," +
+		"src_port TEXT NOT NULL," +
+		"dst_port TEXT NOT NULL," +
+		"PRIMARY KEY (tx_hash, msg_index)," +
+		"FOREIGN KEY (tx_hash) REFERENCES txs(hash) ON DELETE CASCADE" +
+		")"
+
+	acks := "CREATE TABLE IF NOT EXISTS msg_ack (" +
+		"tx_hash bytea," +
+		"msg_index INT," +
+		"signer TEXT NOT NULL," +
+		"src_chan TEXT NOT NULL," +
+		"dst_chan TEXT NOT NULL," +
+		"src_port TEXT NOT NULL," +
+		"dst_port TEXT NOT NULL," +
+		"PRIMARY KEY (tx_hash, msg_index)," +
+		"FOREIGN KEY (tx_hash) REFERENCES txs(hash) ON DELETE CASCADE" +
+		")"
+
+	tables := []string{txs, transfer, recvpacket, timeout, acks}
+
+	for _, table := range tables {
+		_, err := db.Exec(table)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 func makeBlockArray(src *relayer.Chain, srcStart int64) ([]int64, error) {
 	srcBlocks := make([]int64, 0)
 	srcCurrent, err := src.QueryLatestHeight()
@@ -264,7 +339,8 @@ func handleMsg(c *relayer.Chain, msg sdk.Msg, msgIndex int, height int64, hash [
 	case *transfertypes.MsgTransfer:
 		done := c.UseSDKContext()
 
-		err := insertMsgTransferRow(hash, m.Token.Denom, m.SourceChannel, m.Route(), m.Token.Amount.String(), msgIndex, db)
+		err := insertMsgTransferRow(hash, m.Token.Denom, m.SourceChannel, m.Route(), m.Token.Amount.String(), m.Sender,
+			m.GetSigners()[0].String(), m.Receiver, m.SourcePort, msgIndex, db)
 		if err != nil {
 			fmt.Printf("Failed to insert MsgTransfer. Index: %d Height: %d Err: %s", msgIndex, height, err.Error())
 		}
@@ -304,13 +380,13 @@ func handleMsg(c *relayer.Chain, msg sdk.Msg, msgIndex int, height int64, hash [
 	}
 }
 
-func insertTxRow(hash []byte, cID string, height int64, timestamp time.Time, db *sql.DB) error {
+func insertTxRow(hash []byte, chainid string, height int64, timestamp time.Time, db *sql.DB) error {
 	stmt, err := db.Prepare("INSERT INTO txs(hash, block_time, chainid, block_height) VALUES($1, $2, $3, $4)")
 	if err != nil {
 		return fmt.Errorf("Fail to create query for new tx. Err: %s \n", err.Error())
 	}
 
-	_, err = stmt.Exec(hash, timestamp, cID, height)
+	_, err = stmt.Exec(hash, timestamp, chainid, height)
 	if err != nil {
 		return fmt.Errorf("Fail to execute query for new tx. Err: %s \n", err.Error())
 	}
@@ -318,13 +394,13 @@ func insertTxRow(hash []byte, cID string, height int64, timestamp time.Time, db 
 	return nil
 }
 
-func insertMsgTransferRow(hash []byte, denom, srcChan, route, amount string, msgIndex int, db *sql.DB) error {
-	stmt, err := db.Prepare("INSERT INTO msg_transfer(tx_hash, msg_index, amount, denom, src_chan, route) VALUES($1, $2, $3, $4, $5, $6)")
+func insertMsgTransferRow(hash []byte, denom, srcChan, route, amount, sender, signer, receiver, port string, msgIndex int, db *sql.DB) error {
+	stmt, err := db.Prepare("INSERT INTO msg_transfer(tx_hash, msg_index, amount, denom, src_chan, route, signer, sender, receiver, src_port) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)")
 	if err != nil {
 		return fmt.Errorf("Fail to create query for MsgTransfer. Err: %s \n", err.Error())
 	}
 
-	_, err = stmt.Exec(hash, msgIndex, amount, denom, srcChan, route)
+	_, err = stmt.Exec(hash, msgIndex, amount, denom, srcChan, route, signer, sender, receiver, port)
 	if err != nil {
 		return fmt.Errorf("Fail to execute query for MsgTransfer. Err: %s \n", err.Error())
 	}
@@ -378,7 +454,7 @@ func getLastStoredBlock(chainId string, db *sql.DB) (int64, error) {
 	var height int64
 	err := db.QueryRow("SELECT MAX(block_height) FROM txs WHERE chainid=?", chainId).Scan(&height)
 	if err != nil {
-		return 0, err
+		return 1, err
 	}
 	return height, nil
 }
