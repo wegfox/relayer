@@ -190,6 +190,7 @@ func QueryBlocks(chain *relayer.Chain, blocks []int64, db *sql.DB) error {
 	for _, h := range blocks {
 		h := h
 		sem <- struct{}{}
+		fmt.Printf("There are %d many elements in queue now \n", len(sem))
 
 		eg.Go(func() error {
 			block, err := chain.Client.Block(context.Background(), &h)
@@ -208,33 +209,34 @@ func QueryBlocks(chain *relayer.Chain, blocks []int64, db *sql.DB) error {
 						mutex.Lock()
 						failedBlocks = append(failedBlocks, h)
 						mutex.Unlock()
-						return err
 					} else {
 						fmt.Printf("Failed to get block at height %d for chain %s. Err: %s \n", h, chain.ChainID, err.Error())
-						return err
 					}
 				}
 			}
 
-			for _, tx := range block.Block.Data.Txs {
-				sdkTx, err := chain.Encoding.TxConfig.TxDecoder()(tx)
-				if err != nil {
-					return fmt.Errorf("Failed to decode tx at height %d from %s. Err: %s \n", h, chain.ChainID, err.Error())
-				}
+			if block != nil {
+				for _, tx := range block.Block.Data.Txs {
+					sdkTx, err := chain.Encoding.TxConfig.TxDecoder()(tx)
+					if err != nil {
+						return fmt.Errorf("Failed to decode tx at height %d from %s. Err: %s \n", h, chain.ChainID, err.Error())
+					}
 
-				err = insertTxRow(tx.Hash(), chain.ChainID, h, block.Block.Time, db)
-				if err != nil {
-					fmt.Printf("Failed to insert tx at Height: %d on chain %s. Err: %s", block.Block.Height, chain.ChainID, err.Error())
-				} else {
-					fmt.Printf("Wrote to database for height %d with %d txs \n", h, len(sdkTx.GetMsgs()))
-				}
+					err = insertTxRow(tx.Hash(), chain.ChainID, h, block.Block.Time, db)
+					if err != nil {
+						fmt.Printf("Failed to insert tx at Height: %d on chain %s. Err: %s", block.Block.Height, chain.ChainID, err.Error())
+					} else {
+						fmt.Printf("Wrote to database for height %d with %d txs \n", h, len(sdkTx.GetMsgs()))
+					}
 
-				for msgIndex, msg := range sdkTx.GetMsgs() {
-					handleMsg(chain, msg, msgIndex, block.Block.Height, tx.Hash(), db)
+					for msgIndex, msg := range sdkTx.GetMsgs() {
+						handleMsg(chain, msg, msgIndex, block.Block.Height, tx.Hash(), db)
+					}
 				}
 			}
 
 			<-sem
+			fmt.Printf("There are %d many elements in queue now \n", len(sem))
 			return nil
 		})
 	}
