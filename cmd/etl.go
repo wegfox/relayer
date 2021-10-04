@@ -462,7 +462,7 @@ func insertMsgAckRow(hash []byte, signer, srcChan, dstChan, srcPort, dstPort str
 
 func getLastStoredBlock(chainId string, db *sql.DB) (int64, error) {
 	var height int64
-	err := db.QueryRow("SELECT MAX(block_height) FROM txs WHERE chainid=?", chainId).Scan(&height)
+	err := db.QueryRow("SELECT MAX(block_height) FROM txs WHERE chainid=$1", chainId).Scan(&height)
 	if err != nil {
 		return 1, err
 	}
