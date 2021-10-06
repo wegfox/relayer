@@ -190,7 +190,6 @@ func QueryBlocks(chain *relayer.Chain, blocks []int64, db *sql.DB) error {
 	for _, h := range blocks {
 		h := h
 		sem <- struct{}{}
-		fmt.Printf("There are %d many elements in queue now \n", len(sem))
 
 		eg.Go(func() error {
 			block, err := chain.Client.Block(context.Background(), &h)
@@ -210,13 +209,13 @@ func QueryBlocks(chain *relayer.Chain, blocks []int64, db *sql.DB) error {
 						failedBlocks = append(failedBlocks, h)
 						mutex.Unlock()
 					} else {
-						fmt.Printf("Failed to get block at height %d for chain %s. Err: %s \n", h, chain.ChainID, err.Error())
+						fmt.Printf("[Height %d] - Failed to get block. Err: %s \n", h, err.Error())
 					}
 				}
 			}
 
 			if block != nil {
-				for _, tx := range block.Block.Data.Txs {
+				for i, tx := range block.Block.Data.Txs {
 					sdkTx, err := chain.Encoding.TxConfig.TxDecoder()(tx)
 					if err != nil {
 						return fmt.Errorf("Failed to decode tx at height %d from %s. Err: %s \n", h, chain.ChainID, err.Error())
@@ -224,9 +223,9 @@ func QueryBlocks(chain *relayer.Chain, blocks []int64, db *sql.DB) error {
 
 					err = insertTxRow(tx.Hash(), chain.ChainID, h, block.Block.Time, db)
 					if err != nil {
-						fmt.Printf("Failed to insert tx at Height: %d on chain %s. Err: %s", block.Block.Height, chain.ChainID, err.Error())
+						fmt.Printf("[Height %d] {%d/%d txs} - Failed to write tx to db. Err: %s \n", block.Block.Height, i, len(block.Block.Data.Txs), err.Error())
 					} else {
-						fmt.Printf("Wrote to database for height %d with %d txs \n", h, len(sdkTx.GetMsgs()))
+						fmt.Printf("[Height %d] {%d/%d txs} - Successfuly wrote tx to db with %d msgs. \n", block.Block.Height, i, len(block.Block.Data.Txs), len(sdkTx.GetMsgs()))
 					}
 
 					for msgIndex, msg := range sdkTx.GetMsgs() {
@@ -236,7 +235,6 @@ func QueryBlocks(chain *relayer.Chain, blocks []int64, db *sql.DB) error {
 			}
 
 			<-sem
-			fmt.Printf("There are %d many elements in queue now \n", len(sem))
 			return nil
 		})
 	}
