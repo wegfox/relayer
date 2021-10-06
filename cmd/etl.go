@@ -223,9 +223,9 @@ func QueryBlocks(chain *relayer.Chain, blocks []int64, db *sql.DB) error {
 
 					err = insertTxRow(tx.Hash(), chain.ChainID, h, block.Block.Time, db)
 					if err != nil {
-						fmt.Printf("[Height %d] {%d/%d txs} - Failed to write tx to db. Err: %s \n", block.Block.Height, i, len(block.Block.Data.Txs), err.Error())
+						fmt.Printf("[Height %d] {%d/%d txs} - Failed to write tx to db. Err: %s \n", block.Block.Height, i+1, len(block.Block.Data.Txs), err.Error())
 					} else {
-						fmt.Printf("[Height %d] {%d/%d txs} - Successfuly wrote tx to db with %d msgs. \n", block.Block.Height, i, len(block.Block.Data.Txs), len(sdkTx.GetMsgs()))
+						fmt.Printf("[Height %d] {%d/%d txs} - Successfuly wrote tx to db with %d msgs. \n", block.Block.Height, i+1, len(block.Block.Data.Txs), len(sdkTx.GetMsgs()))
 					}
 
 					for msgIndex, msg := range sdkTx.GetMsgs() {
