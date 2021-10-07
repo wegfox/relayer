@@ -61,6 +61,7 @@ func etlCmd() *cobra.Command {
 // // decode all txs in the block and iterate
 // // // iterate over all msgs in the tx
 // // // // write a row to a postgres table for each transfertypes.MsgTransfer, channeltypes.MsgRecvPacket,channeltypes.MsgTimeout, channeltypes.MsgAcknowledgement
+// TODO during cleanup stick query specific stuff in its own go file qos
 func qosForPeriod() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "quality-of-servce-period [path]",
@@ -73,7 +74,7 @@ $ %s q quality-of-service --start YYYY-MM-DD HH:MM:SS --end YYYY-MM-DD HH:MM:SS`
 		)),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			const driverName = "postgres"
-			chain, err := config.Chains.Get(args[0])
+			path, err := config.Paths.Get(args[0])
 			if err != nil {
 				return err
 			}
@@ -99,19 +100,53 @@ $ %s q quality-of-service --start YYYY-MM-DD HH:MM:SS --end YYYY-MM-DD HH:MM:SS`
 				return err
 			}
 
-			// query against database for all txs in s<=T<=e
-			// calculate QoS
-			fmt.Println(chain.ChainID + " --- " + strtTime.String() + " --- " + endTime.String())
+			srcChain := path.Src.ChainID
+			srcChan := path.Src.ChannelID
+			dstChain := path.Dst.ChainID
+			dstChan := path.Dst.ChannelID
 
-			//txs, err := getTxsForPeriod(chain.ChainID, db, strtTime, endTime)
-			//if err != nil {
-			//	return err
-			//}
-			//
-			//for _, tx := range txs {
-			//	fmt.Printf("Tx hash: %s \n Block Time: %s \n Height: %d \n Chain: %s \n", tx.hash, tx.blockTime, tx.height, tx.chainId)
-			//	fmt.Println("----------------------------------------------")
-			//}
+			fmt.Printf("[%s:%s <-> %s:%s] [%s - %s] Calculating IBC QoS... \n", srcChain, srcChan,
+				dstChain, dstChan, strtTime.Format("2006-01-02 15:04:05"), endTime.Format("2006-01-02 15:04:05"))
+
+			// TODO stick all of below queries/calculations into its own function for readability
+			srcTransfers, err := getTransfersForPeriod(srcChain, srcChan, db, strtTime, endTime)
+			if err != nil {
+				return err
+			}
+			dstTransfers, err := getTransfersForPeriod(dstChain, dstChan, db, strtTime, endTime)
+			if err != nil {
+				return err
+			}
+
+			srcTimeouts, err := getTimeoutsForPeriod(srcChain, srcChan, db, strtTime, endTime)
+			if err != nil {
+				return err
+			}
+			dstTimeouts, err := getTimeoutsForPeriod(dstChain, dstChan, db, strtTime, endTime)
+			if err != nil {
+				return err
+			}
+
+			srcRecvPackets, err := getRecvPacketsForPeriod(srcChain, srcChan, db, strtTime, endTime)
+			if err != nil {
+				return err
+			}
+			dstRecvPackets, err := getRecvPacketsForPeriod(dstChain, dstChan, db, strtTime, endTime)
+			if err != nil {
+				return err
+			}
+
+			// calculate avg for both chains
+			// calculate qos (weighted avg of A->B & B->A)
+
+			if debug {
+				fmt.Printf("[%s:%s] - There were %d MsgTransfers. \n", srcChain, srcChan, srcTransfers)
+				fmt.Printf("[%s:%s] - There were %d MsgTransfers. \n", dstChain, dstChan, dstTransfers)
+				fmt.Printf("[%s:%s] - There were %d MsgTimeouts. \n", srcChain, srcChan, srcTimeouts)
+				fmt.Printf("[%s:%s] - There were %d MsgTimeouts. \n", dstChain, dstChan, dstTimeouts)
+				fmt.Printf("[%s:%s] - There were %d MsgRecvPackets. \n", srcChain, srcChan, srcRecvPackets)
+				fmt.Printf("[%s:%s] - There were %d MsgRecvPackets. \n", dstChain, dstChan, dstRecvPackets)
+			}
 
 			return nil
 		},
@@ -218,7 +253,9 @@ func QueryBlocks(chain *relayer.Chain, blocks []int64, db *sql.DB) error {
 				for i, tx := range block.Block.Data.Txs {
 					sdkTx, err := chain.Encoding.TxConfig.TxDecoder()(tx)
 					if err != nil {
-						return fmt.Errorf("Failed to decode tx at height %d from %s. Err: %s \n", h, chain.ChainID, err.Error())
+						// TODO DEX based txs fail currently, add support for both Osmosis & TM
+						fmt.Printf("[Height %d] {%d/%d txs} - Failed to decode tx. Err: %s \n", block.Block.Height, i+1, len(block.Block.Data.Txs), err.Error())
+						continue
 					}
 
 					err = insertTxRow(tx.Hash(), chain.ChainID, h, block.Block.Time, db)
@@ -319,7 +356,6 @@ func createTables(db *sql.DB) error {
 		")"
 
 	tables := []string{txs, transfer, recvpacket, timeout, acks}
-
 	for _, table := range tables {
 		_, err := db.Exec(table)
 		if err != nil {
@@ -467,47 +503,83 @@ func getLastStoredBlock(chainId string, db *sql.DB) (int64, error) {
 	return height, nil
 }
 
-func getTxsForPeriod(chainId string, db *sql.DB, start, end time.Time) ([]Tx, error) {
-	rows, err := db.Query("SELECT * FROM txs WHERE block_time >= $1 AND block_time < $2 AND chainid = $3",
-		start.Format("2006-01-02 15:04:05"), end.Format("2006-01-02 15:04:05"), chainId)
+func getTransfersForPeriod(chainId, channel string, db *sql.DB, start, end time.Time) (int64, error) {
+	query := "SELECT * " +
+		"FROM txs " +
+		"INNER JOIN msg_transfer msg ON msg.tx_hash=txs.hash " +
+		"WHERE block_time >= $1 " +
+		"AND block_time < $2 " +
+		"AND chainid = $3 " +
+		"AND src_chan = $4"
 
+	rows, err := db.Query(query, start.Format("2006-01-02 15:04:05"), end.Format("2006-01-02 15:04:05"), chainId, channel)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 	defer rows.Close()
 
-	txs := make([]Tx, 0)
+	var transfers int64
 	for rows.Next() {
-		var (
-			hash      []byte
-			blockTime string
-			chain     string
-			height    int64
-		)
-
-		err = rows.Scan(&hash, &blockTime, &chain, &height)
-		if err != nil {
-			return nil, err
-		}
-
-		txs = append(txs, Tx{
-			hash:      hash,
-			blockTime: blockTime,
-			chainId:   chain,
-			height:    height,
-		})
+		transfers += 1
 	}
 
 	if rows.Err() != nil {
-		return nil, err
+		return 0, err
 	}
 
-	return txs, nil
+	return transfers, nil
 }
 
-type Tx struct {
-	hash      []byte
-	blockTime string
-	chainId   string
-	height    int64
+func getTimeoutsForPeriod(chainId, channel string, db *sql.DB, start, end time.Time) (int64, error) {
+	query := "SELECT * " +
+		"FROM txs " +
+		"INNER JOIN msg_timeout msg ON msg.tx_hash=txs.hash " +
+		"WHERE block_time >= $1 " +
+		"AND block_time < $2 " +
+		"AND chainid = $3 " +
+		"AND src_chan = $4"
+
+	rows, err := db.Query(query, start.Format("2006-01-02 15:04:05"), end.Format("2006-01-02 15:04:05"), chainId, channel)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+
+	var timeouts int64
+	for rows.Next() {
+		timeouts += 1
+	}
+
+	if rows.Err() != nil {
+		return 0, err
+	}
+
+	return timeouts, nil
+}
+
+func getRecvPacketsForPeriod(chainId, channel string, db *sql.DB, start, end time.Time) (int64, error) {
+	query := "SELECT * " +
+		"FROM txs " +
+		"INNER JOIN msg_recvpacket msg ON msg.tx_hash=txs.hash " +
+		"WHERE block_time >= $1 " +
+		"AND block_time < $2 " +
+		"AND chainid = $3 " +
+		"AND src_chan = $4"
+
+	rows, err := db.Query(query, start.Format("2006-01-02 15:04:05"), end.Format("2006-01-02 15:04:05"), chainId, channel)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+
+	var recvPackets int64
+	for rows.Next() {
+		recvPackets += 1
+	}
+
+	if rows.Err() != nil {
+		return 0, err
+	}
+
+	return recvPackets, nil
 }
