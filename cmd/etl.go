@@ -105,8 +105,13 @@ $ %s q quality-of-service --start YYYY-MM-DD HH:MM:SS --end YYYY-MM-DD HH:MM:SS`
 			dstChain := path.Dst.ChainID
 			dstChan := path.Dst.ChannelID
 
-			fmt.Printf("[%s:%s <-> %s:%s] [%s - %s] Calculating IBC QoS... \n", srcChain, srcChan,
+			fmt.Printf("[%s:%s <-> %s:%s] Calculating IBC QoS for period {%s - %s}\n", srcChain, srcChan,
 				dstChain, dstChan, strtTime.Format("2006-01-02 15:04:05"), endTime.Format("2006-01-02 15:04:05"))
+
+			if debug {
+				fmt.Printf(" Source Chain: %s \n Dst Chain: %s \n Src Chan: %s \n Dst Chan: %s \n",
+					srcChain, dstChain, srcChan, dstChan)
+			}
 
 			// TODO stick all of below queries/calculations into its own function for readability
 			srcTransfers, err := getTransfersForPeriod(srcChain, srcChan, db, strtTime, endTime)
@@ -118,20 +123,20 @@ $ %s q quality-of-service --start YYYY-MM-DD HH:MM:SS --end YYYY-MM-DD HH:MM:SS`
 				return err
 			}
 
-			srcTimeouts, err := getTimeoutsForPeriod(srcChain, srcChan, db, strtTime, endTime)
+			srcTimeouts, err := getTimeoutsForPeriod(srcChain, srcChan, dstChan, db, strtTime, endTime)
 			if err != nil {
 				return err
 			}
-			dstTimeouts, err := getTimeoutsForPeriod(dstChain, dstChan, db, strtTime, endTime)
+			dstTimeouts, err := getTimeoutsForPeriod(dstChain, dstChan, srcChan, db, strtTime, endTime)
 			if err != nil {
 				return err
 			}
 
-			srcRecvPackets, err := getRecvPacketsForPeriod(srcChain, srcChan, db, strtTime, endTime)
+			srcRecvPackets, err := getRecvPacketsForPeriod(srcChain, dstChan, srcChan, db, strtTime, endTime)
 			if err != nil {
 				return err
 			}
-			dstRecvPackets, err := getRecvPacketsForPeriod(dstChain, dstChan, db, strtTime, endTime)
+			dstRecvPackets, err := getRecvPacketsForPeriod(dstChain, srcChan, dstChan, db, strtTime, endTime)
 			if err != nil {
 				return err
 			}
@@ -140,12 +145,12 @@ $ %s q quality-of-service --start YYYY-MM-DD HH:MM:SS --end YYYY-MM-DD HH:MM:SS`
 			// calculate qos (weighted avg of A->B & B->A)
 
 			if debug {
-				fmt.Printf("[%s:%s] - There were %d MsgTransfers. \n", srcChain, srcChan, srcTransfers)
-				fmt.Printf("[%s:%s] - There were %d MsgTransfers. \n", dstChain, dstChan, dstTransfers)
-				fmt.Printf("[%s:%s] - There were %d MsgTimeouts. \n", srcChain, srcChan, srcTimeouts)
-				fmt.Printf("[%s:%s] - There were %d MsgTimeouts. \n", dstChain, dstChan, dstTimeouts)
-				fmt.Printf("[%s:%s] - There were %d MsgRecvPackets. \n", srcChain, srcChan, srcRecvPackets)
-				fmt.Printf("[%s:%s] - There were %d MsgRecvPackets. \n", dstChain, dstChan, dstRecvPackets)
+				fmt.Printf("[%s:%s -> %s:%s] - There were %d MsgTransfers. \n", srcChain, srcChan, dstChain, dstChan, srcTransfers)
+				fmt.Printf("[%s:%s -> %s:%s] - There were %d MsgTransfers. \n", dstChain, dstChan, srcChain, srcChan, dstTransfers)
+				fmt.Printf("[%s:%s -> %s:%s] - There were %d MsgTimeouts. \n", srcChain, srcChan, dstChain, dstChan, srcTimeouts)
+				fmt.Printf("[%s:%s -> %s:%s] - There were %d MsgTimeouts. \n", dstChain, dstChan, srcChain, srcChan, dstTimeouts)
+				fmt.Printf("[%s:%s -> %s:%s] - There were %d MsgRecvPackets. \n", srcChain, srcChan, dstChain, dstChan, srcRecvPackets)
+				fmt.Printf("[%s:%s -> %s:%s] - There were %d MsgRecvPackets. \n", dstChain, dstChan, srcChain, srcChan, dstRecvPackets)
 			}
 
 			return nil
@@ -530,16 +535,17 @@ func getTransfersForPeriod(chainId, channel string, db *sql.DB, start, end time.
 	return transfers, nil
 }
 
-func getTimeoutsForPeriod(chainId, channel string, db *sql.DB, start, end time.Time) (int64, error) {
+func getTimeoutsForPeriod(chainId, srcChan, dstChan string, db *sql.DB, start, end time.Time) (int64, error) {
 	query := "SELECT * " +
 		"FROM txs " +
 		"INNER JOIN msg_timeout msg ON msg.tx_hash=txs.hash " +
 		"WHERE block_time >= $1 " +
 		"AND block_time < $2 " +
 		"AND chainid = $3 " +
-		"AND src_chan = $4"
+		"AND src_chan = $4 " +
+		"AND dst_chan = $5"
 
-	rows, err := db.Query(query, start.Format("2006-01-02 15:04:05"), end.Format("2006-01-02 15:04:05"), chainId, channel)
+	rows, err := db.Query(query, start.Format("2006-01-02 15:04:05"), end.Format("2006-01-02 15:04:05"), chainId, srcChan, dstChan)
 	if err != nil {
 		return 0, err
 	}
@@ -557,16 +563,17 @@ func getTimeoutsForPeriod(chainId, channel string, db *sql.DB, start, end time.T
 	return timeouts, nil
 }
 
-func getRecvPacketsForPeriod(chainId, channel string, db *sql.DB, start, end time.Time) (int64, error) {
+func getRecvPacketsForPeriod(chainId, srcChan, dstChan string, db *sql.DB, start, end time.Time) (int64, error) {
 	query := "SELECT * " +
 		"FROM txs " +
 		"INNER JOIN msg_recvpacket msg ON msg.tx_hash=txs.hash " +
 		"WHERE block_time >= $1 " +
 		"AND block_time < $2 " +
 		"AND chainid = $3 " +
-		"AND src_chan = $4"
+		"AND src_chan = $4 " +
+		"AND dst_chan = $5"
 
-	rows, err := db.Query(query, start.Format("2006-01-02 15:04:05"), end.Format("2006-01-02 15:04:05"), chainId, channel)
+	rows, err := db.Query(query, start.Format("2006-01-02 15:04:05"), end.Format("2006-01-02 15:04:05"), chainId, srcChan, dstChan)
 	if err != nil {
 		return 0, err
 	}
