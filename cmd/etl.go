@@ -105,7 +105,7 @@ $ %s q quality-of-service --start YYYY-MM-DD HH:MM:SS --end YYYY-MM-DD HH:MM:SS`
 			dstChain := path.Dst.ChainID
 			dstChan := path.Dst.ChannelID
 
-			fmt.Printf("[%s:%s <-> %s:%s] Calculating IBC QoS for period {%s - %s}\n", srcChain, srcChan,
+			fmt.Printf("[%s:%s <-> %s:%s] Calculating IBC QoS over %s - %s\n", srcChain, srcChan,
 				dstChain, dstChan, strtTime.Format("2006-01-02 15:04:05"), endTime.Format("2006-01-02 15:04:05"))
 
 			if debug {
