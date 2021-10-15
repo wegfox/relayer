@@ -18,6 +18,7 @@ package cmd
 import (
 	"context"
 	"database/sql"
+	"encoding/hex"
 	"fmt"
 	"strings"
 	"sync"
@@ -263,11 +264,27 @@ func QueryBlocks(chain *relayer.Chain, blocks []int64, db *sql.DB) error {
 						continue
 					}
 
-					err = insertTxRow(tx.Hash(), chain.ChainID, h, block.Block.Time, db)
+					txRes, err := chain.QueryTx(hex.EncodeToString(tx.Hash()))
 					if err != nil {
-						fmt.Printf("[Height %d] {%d/%d txs} - Failed to write tx to db. Err: %s \n", block.Block.Height, i+1, len(block.Block.Data.Txs), err.Error())
+						fmt.Printf("[Height %d] {%d/%d txs} - Failed to query tx results. Err: %s \n", block.Block.Height, i+1, len(block.Block.Data.Txs), err.Error())
+						continue
+					}
+
+					if txRes.TxResult.Code > 0 {
+						json := fmt.Sprintf("{\"error\":\"%s\"}", txRes.TxResult.Log)
+						err = insertTxRow(tx.Hash(), chain.ChainID, json, h, txRes.TxResult.GasUsed, txRes.TxResult.GasWanted, block.Block.Time, db, txRes.TxResult.Code)
+						if err != nil {
+							fmt.Printf("[Height %d] {%d/%d txs} - Failed to write tx to db. Err: %s \n", block.Block.Height, i+1, len(block.Block.Data.Txs), err.Error())
+						} else {
+							fmt.Printf("[Height %d] {%d/%d txs} - Successfuly wrote tx to db with %d msgs. \n", block.Block.Height, i+1, len(block.Block.Data.Txs), len(sdkTx.GetMsgs()))
+						}
 					} else {
-						fmt.Printf("[Height %d] {%d/%d txs} - Successfuly wrote tx to db with %d msgs. \n", block.Block.Height, i+1, len(block.Block.Data.Txs), len(sdkTx.GetMsgs()))
+						err = insertTxRow(tx.Hash(), chain.ChainID, txRes.TxResult.Log, h, txRes.TxResult.GasUsed, txRes.TxResult.GasWanted, block.Block.Time, db, txRes.TxResult.Code)
+						if err != nil {
+							fmt.Printf("[Height %d] {%d/%d txs} - Failed to write tx to db. Err: %s \n", block.Block.Height, i+1, len(block.Block.Data.Txs), err.Error())
+						} else {
+							fmt.Printf("[Height %d] {%d/%d txs} - Successfuly wrote tx to db with %d msgs. \n", block.Block.Height, i+1, len(block.Block.Data.Txs), len(sdkTx.GetMsgs()))
+						}
 					}
 
 					for msgIndex, msg := range sdkTx.GetMsgs() {
@@ -306,7 +323,11 @@ func createTables(db *sql.DB) error {
 		"hash bytea PRIMARY KEY, " +
 		"block_time TIMESTAMP NOT NULL, " +
 		"chainid TEXT NOT NULL, " +
-		"block_height BIGINT NOT NULL " +
+		"block_height BIGINT NOT NULL, " +
+		"raw_log JSONB NOT NULL," +
+		"code INT NOT NULL, " +
+		"gas_used BIGINT NOT NULL," +
+		"gas_wanted BIGINT NOT NULL" +
 		")"
 
 	transfer := "CREATE TABLE IF NOT EXISTS msg_transfer (" +
@@ -429,13 +450,13 @@ func handleMsg(c *relayer.Chain, msg sdk.Msg, msgIndex int, height int64, hash [
 	}
 }
 
-func insertTxRow(hash []byte, chainid string, height int64, timestamp time.Time, db *sql.DB) error {
-	stmt, err := db.Prepare("INSERT INTO txs(hash, block_time, chainid, block_height) VALUES($1, $2, $3, $4)")
+func insertTxRow(hash []byte, chainid, log string, height, gasUsed, gasWanted int64, timestamp time.Time, db *sql.DB, code uint32) error {
+	stmt, err := db.Prepare("INSERT INTO txs(hash, block_time, chainid, block_height, raw_log, code, gas_used, gas_wanted) VALUES($1, $2, $3, $4, $5, $6, $7, $8)")
 	if err != nil {
 		return fmt.Errorf("Fail to create query for new tx. Err: %s \n", err.Error())
 	}
 
-	_, err = stmt.Exec(hash, timestamp, chainid, height)
+	_, err = stmt.Exec(hash, timestamp, chainid, height, log, code, gasUsed, gasWanted)
 	if err != nil {
 		return fmt.Errorf("Fail to execute query for new tx. Err: %s \n", err.Error())
 	}
@@ -589,4 +610,8 @@ func getRecvPacketsForPeriod(chainId, srcChan, dstChan string, db *sql.DB, start
 	}
 
 	return recvPackets, nil
+}
+
+func dumpToJson() {
+
 }
