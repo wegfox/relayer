@@ -143,15 +143,33 @@ $ %s q quality-of-service --start YYYY-MM-DD HH:MM:SS --end YYYY-MM-DD HH:MM:SS`
 			}
 
 			// calculate avg for both chains
-			// calculate qos (weighted avg of A->B & B->A)
+			var srcAvgTimeouts, srcAvgRecvd, dstAvgTimeouts, dstAvgRecvd float64
+			srcAvgTimeouts = float64(srcTimeouts) / float64(srcTransfers)
+			srcAvgRecvd = float64(dstRecvPackets) / float64(srcTransfers)
+			dstAvgTimeouts = float64(dstTimeouts) / float64(dstTransfers)
+			dstAvgRecvd = float64(srcRecvPackets) / float64(dstTransfers)
+
+			// calculate combined avg
+			var avgTimeouts, avgRecvd float64
+			avgTimeouts = float64(srcTimeouts+dstTimeouts) / float64(srcTransfers+dstTransfers)
+			avgRecvd = float64(srcRecvPackets+dstRecvPackets) / float64(srcTransfers+dstTransfers)
+
+			fmt.Printf("[%s:%s -> %s:%s] - Average Timedout Packets: %f \n", srcChain, srcChan, dstChain, dstChan, srcAvgTimeouts*100)
+			fmt.Printf("[%s:%s -> %s:%s] - Average Received Packets: %f \n", srcChain, srcChan, dstChain, dstChan, srcAvgRecvd*100)
+			fmt.Printf("[%s:%s -> %s:%s] - Average Timedout Packets: %f \n", dstChain, dstChan, srcChain, srcChan, dstAvgTimeouts*100)
+			fmt.Printf("[%s:%s -> %s:%s] - Average Received Packets: %f \n", dstChain, dstChan, srcChain, srcChan, dstAvgRecvd*100)
+			fmt.Printf("[%s:%s <-> %s:%s] - Average Timedout Packets: %f \n", srcChain, srcChan, dstChain, dstChan, avgTimeouts*100)
+			fmt.Printf("[%s:%s <-> %s:%s] - Average Received Packets: %f \n", srcChain, srcChan, dstChain, dstChan, avgRecvd*100)
 
 			if debug {
+				fmt.Println("---------------------------------------------------")
 				fmt.Printf("[%s:%s -> %s:%s] - There were %d MsgTransfers. \n", srcChain, srcChan, dstChain, dstChan, srcTransfers)
 				fmt.Printf("[%s:%s -> %s:%s] - There were %d MsgTransfers. \n", dstChain, dstChan, srcChain, srcChan, dstTransfers)
 				fmt.Printf("[%s:%s -> %s:%s] - There were %d MsgTimeouts. \n", srcChain, srcChan, dstChain, dstChan, srcTimeouts)
 				fmt.Printf("[%s:%s -> %s:%s] - There were %d MsgTimeouts. \n", dstChain, dstChan, srcChain, srcChan, dstTimeouts)
 				fmt.Printf("[%s:%s -> %s:%s] - There were %d MsgRecvPackets. \n", srcChain, srcChan, dstChain, dstChan, srcRecvPackets)
 				fmt.Printf("[%s:%s -> %s:%s] - There were %d MsgRecvPackets. \n", dstChain, dstChan, srcChain, srcChan, dstRecvPackets)
+				fmt.Println("---------------------------------------------------")
 			}
 
 			return nil
@@ -536,7 +554,8 @@ func getTransfersForPeriod(chainId, channel string, db *sql.DB, start, end time.
 		"WHERE block_time >= $1 " +
 		"AND block_time < $2 " +
 		"AND chainid = $3 " +
-		"AND src_chan = $4"
+		"AND src_chan = $4 " +
+		"AND code = 0"
 
 	rows, err := db.Query(query, start.Format("2006-01-02 15:04:05"), end.Format("2006-01-02 15:04:05"), chainId, channel)
 	if err != nil {
@@ -564,7 +583,8 @@ func getTimeoutsForPeriod(chainId, srcChan, dstChan string, db *sql.DB, start, e
 		"AND block_time < $2 " +
 		"AND chainid = $3 " +
 		"AND src_chan = $4 " +
-		"AND dst_chan = $5"
+		"AND dst_chan = $5 " +
+		"AND code = 0"
 
 	rows, err := db.Query(query, start.Format("2006-01-02 15:04:05"), end.Format("2006-01-02 15:04:05"), chainId, srcChan, dstChan)
 	if err != nil {
@@ -592,7 +612,8 @@ func getRecvPacketsForPeriod(chainId, srcChan, dstChan string, db *sql.DB, start
 		"AND block_time < $2 " +
 		"AND chainid = $3 " +
 		"AND src_chan = $4 " +
-		"AND dst_chan = $5"
+		"AND dst_chan = $5 " +
+		"AND code = 0"
 
 	rows, err := db.Query(query, start.Format("2006-01-02 15:04:05"), end.Format("2006-01-02 15:04:05"), chainId, srcChan, dstChan)
 	if err != nil {
@@ -610,8 +631,4 @@ func getRecvPacketsForPeriod(chainId, srcChan, dstChan string, db *sql.DB, start
 	}
 
 	return recvPackets, nil
-}
-
-func dumpToJson() {
-
 }
