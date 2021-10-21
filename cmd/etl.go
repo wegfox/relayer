@@ -44,6 +44,7 @@ func etlCmd() *cobra.Command {
 	cmd.AddCommand(
 		qosCmd(),
 		qosForPeriod(),
+		transferAmounts(),
 	)
 
 	return cmd
@@ -63,6 +64,65 @@ func etlCmd() *cobra.Command {
 // // // iterate over all msgs in the tx
 // // // // write a row to a postgres table for each transfertypes.MsgTransfer, channeltypes.MsgRecvPacket,channeltypes.MsgTimeout, channeltypes.MsgAcknowledgement
 // TODO during cleanup stick query specific stuff in its own go file qos
+func transferAmounts() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:     "transfer-amounts [chainid]",
+		Aliases: []string{"qosp"},
+		Short:   "retrieve QoS metrics on a given path for a specified date-time period",
+		Args:    cobra.ExactArgs(1),
+		Example: strings.TrimSpace(fmt.Sprintf(`
+$ %s q transfer-amounts --start YYYY-MM-DD HH:MM:SS --end YYYY-MM-DD HH:MM:SS`,
+			appName,
+		)),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			const driverName = "postgres"
+			//path, err := config.Paths.Get(args[0])
+			chainid, err := config.Chains.Get(args[0])
+			if err != nil {
+				return err
+			}
+
+			connString, _ := cmd.Flags().GetString("conn")
+			fmt.Printf("Connecting to database with conn string: %s \n", connString)
+			db, err := connectToDatabase(driverName, connString)
+			if err != nil {
+				return err
+			}
+			defer db.Close()
+			fmt.Println("Successfully connected to db instance.")
+
+			start, _ := cmd.Flags().GetString("start")
+			strtTime, err := time.Parse("2006-01-02 15:04:05", start)
+			if err != nil {
+				return err
+			}
+
+			end, _ := cmd.Flags().GetString("end")
+			endTime, err := time.Parse("2006-01-02 15:04:05", end)
+			if err != nil {
+				return err
+			}
+
+			fmt.Printf("[%s] Retrieving transfer amounts for %s - %s\n", chainid.ChainID,
+				strtTime.Format("2006-01-02 15:04:05"), endTime.Format("2006-01-02 15:04:05"))
+
+			amounts, err := getTransferedAmounts(chainid, strtTime, endTime, db)
+
+			fmt.Println(len(amounts))
+			for denom, amount := range amounts {
+				fmt.Printf("Denom: %s \nAmount: %d \n-----------------------------------------\n", denom, amount)
+			}
+
+			return nil
+		},
+	}
+
+	cmd.Flags().StringP("conn", "c", "host=127.0.0.1 port=5432 user=anon dbname=relayer sslmode=disable", "database connection string")
+	cmd.Flags().StringP("start", "s", time.Now().AddDate(0, -1, 0).Format("2006-01-02 15:04:05"), "start date-time for QoS query")
+	cmd.Flags().StringP("end", "e", time.Now().Format("2006-01-02 15:04:05"), "end date-time for QoS query")
+	return cmd
+}
+
 func qosForPeriod() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "quality-of-servce-period [path]",
@@ -563,6 +623,7 @@ func getTransfersForPeriod(chainId, channel string, db *sql.DB, start, end time.
 	}
 	defer rows.Close()
 
+	//TODO rewrite these queries to already select the number of rows rather than the rows themselves to increase performance
 	var transfers int64
 	for rows.Next() {
 		transfers += 1
@@ -592,6 +653,7 @@ func getTimeoutsForPeriod(chainId, srcChan, dstChan string, db *sql.DB, start, e
 	}
 	defer rows.Close()
 
+	//TODO rewrite these queries to already select the number of rows rather than the rows themselves to increase performance
 	var timeouts int64
 	for rows.Next() {
 		timeouts += 1
@@ -621,6 +683,7 @@ func getRecvPacketsForPeriod(chainId, srcChan, dstChan string, db *sql.DB, start
 	}
 	defer rows.Close()
 
+	//TODO rewrite these queries to already select the number of rows rather than the rows themselves to increase performance
 	var recvPackets int64
 	for rows.Next() {
 		recvPackets += 1
@@ -631,4 +694,55 @@ func getRecvPacketsForPeriod(chainId, srcChan, dstChan string, db *sql.DB, start
 	}
 
 	return recvPackets, nil
+}
+
+func getTransferedAmounts(chain *relayer.Chain, start, end time.Time, db *sql.DB) (map[string]int64, error) {
+	amounts := make(map[string]int64, 1)
+
+	query := "SELECT amount, denom " +
+		"FROM msg_transfer " +
+		"INNER JOIN txs tx ON msg_transfer.tx_hash=tx.hash " +
+		"WHERE block_time >= $1 " +
+		"AND block_time < $2 " +
+		"AND chainid = $3 " +
+		"AND code = 0"
+
+	rows, err := db.Query(query, start.Format("2006-01-02 15:04:05"), end.Format("2006-01-02 15:04:05"), chain.ChainID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var denom string
+	var amount int64
+	for rows.Next() {
+		err = rows.Scan(&amount, &denom)
+		if err != nil {
+			return nil, err
+		}
+
+		// if denom has prefix 'ibc/' then query the denom before adding to the map
+		// if denom is native (i.e. no prefix 'ibc/' then just add to the map
+		if strings.Contains(denom, "ibc/") {
+			denomRes, err := chain.QueryDenomTrace(strings.Trim(denom, "ibc/"))
+			if err != nil {
+				fmt.Printf("ERRO QUERYING DENOM. Err: %s \n", err.Error())
+			} else {
+				denom = denomRes.DenomTrace.BaseDenom
+			}
+		}
+
+		// parse each row
+		if _, exists := amounts[denom]; exists {
+			amounts[denom] = amounts[denom] + amount
+		} else {
+			amounts[denom] = amount
+		}
+	}
+
+	if rows.Err() != nil {
+		return nil, err
+	}
+
+	return amounts, nil
 }
