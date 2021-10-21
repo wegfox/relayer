@@ -108,7 +108,6 @@ $ %s q transfer-amounts --start YYYY-MM-DD HH:MM:SS --end YYYY-MM-DD HH:MM:SS`,
 
 			amounts, err := getTransferedAmounts(chainid, strtTime, endTime, db)
 
-			fmt.Println(len(amounts))
 			for denom, amount := range amounts {
 				fmt.Printf("Denom: %s \nAmount: %d \n-----------------------------------------\n", denom, amount)
 			}
@@ -608,7 +607,7 @@ func getLastStoredBlock(chainId string, db *sql.DB) (int64, error) {
 }
 
 func getTransfersForPeriod(chainId, channel string, db *sql.DB, start, end time.Time) (int64, error) {
-	query := "SELECT * " +
+	query := "SELECT count(*) " +
 		"FROM txs " +
 		"INNER JOIN msg_transfer msg ON msg.tx_hash=txs.hash " +
 		"WHERE block_time >= $1 " +
@@ -616,28 +615,18 @@ func getTransfersForPeriod(chainId, channel string, db *sql.DB, start, end time.
 		"AND chainid = $3 " +
 		"AND src_chan = $4 " +
 		"AND code = 0"
+	var transfers int64
+	err := db.QueryRow(query, start.Format("2006-01-02 15:04:05"), end.Format("2006-01-02 15:04:05"),
+		chainId, channel).Scan(&transfers)
 
-	rows, err := db.Query(query, start.Format("2006-01-02 15:04:05"), end.Format("2006-01-02 15:04:05"), chainId, channel)
 	if err != nil {
 		return 0, err
 	}
-	defer rows.Close()
-
-	//TODO rewrite these queries to already select the number of rows rather than the rows themselves to increase performance
-	var transfers int64
-	for rows.Next() {
-		transfers += 1
-	}
-
-	if rows.Err() != nil {
-		return 0, err
-	}
-
 	return transfers, nil
 }
 
 func getTimeoutsForPeriod(chainId, srcChan, dstChan string, db *sql.DB, start, end time.Time) (int64, error) {
-	query := "SELECT * " +
+	query := "SELECT count(*) " +
 		"FROM txs " +
 		"INNER JOIN msg_timeout msg ON msg.tx_hash=txs.hash " +
 		"WHERE block_time >= $1 " +
@@ -646,28 +635,18 @@ func getTimeoutsForPeriod(chainId, srcChan, dstChan string, db *sql.DB, start, e
 		"AND src_chan = $4 " +
 		"AND dst_chan = $5 " +
 		"AND code = 0"
+	var timeouts int64
+	err := db.QueryRow(query, start.Format("2006-01-02 15:04:05"), end.Format("2006-01-02 15:04:05"),
+		chainId, srcChan, dstChan).Scan(&timeouts)
 
-	rows, err := db.Query(query, start.Format("2006-01-02 15:04:05"), end.Format("2006-01-02 15:04:05"), chainId, srcChan, dstChan)
 	if err != nil {
 		return 0, err
 	}
-	defer rows.Close()
-
-	//TODO rewrite these queries to already select the number of rows rather than the rows themselves to increase performance
-	var timeouts int64
-	for rows.Next() {
-		timeouts += 1
-	}
-
-	if rows.Err() != nil {
-		return 0, err
-	}
-
 	return timeouts, nil
 }
 
 func getRecvPacketsForPeriod(chainId, srcChan, dstChan string, db *sql.DB, start, end time.Time) (int64, error) {
-	query := "SELECT * " +
+	query := "SELECT count(*) " +
 		"FROM txs " +
 		"INNER JOIN msg_recvpacket msg ON msg.tx_hash=txs.hash " +
 		"WHERE block_time >= $1 " +
@@ -676,23 +655,13 @@ func getRecvPacketsForPeriod(chainId, srcChan, dstChan string, db *sql.DB, start
 		"AND src_chan = $4 " +
 		"AND dst_chan = $5 " +
 		"AND code = 0"
+	var recvPackets int64
+	err := db.QueryRow(query, start.Format("2006-01-02 15:04:05"), end.Format("2006-01-02 15:04:05"),
+		chainId, srcChan, dstChan).Scan(&recvPackets)
 
-	rows, err := db.Query(query, start.Format("2006-01-02 15:04:05"), end.Format("2006-01-02 15:04:05"), chainId, srcChan, dstChan)
 	if err != nil {
 		return 0, err
 	}
-	defer rows.Close()
-
-	//TODO rewrite these queries to already select the number of rows rather than the rows themselves to increase performance
-	var recvPackets int64
-	for rows.Next() {
-		recvPackets += 1
-	}
-
-	if rows.Err() != nil {
-		return 0, err
-	}
-
 	return recvPackets, nil
 }
 
