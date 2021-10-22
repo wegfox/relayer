@@ -276,6 +276,7 @@ $ %s etl qos sentinelhub-2 --conn "host=127.0.0.1 port=5432 user=anon dbname=rel
 			// If the user does not provide a height, attempt to use the last height stored in the DB
 			// & if there are no previous entries in db then start from height 1
 			srcStart, _ := cmd.Flags().GetInt64("height")
+			//TODO uncomment this
 			//if srcStart == 1 {
 			//	srcStart, _ = getLastStoredBlock(chain.ChainID, db)
 			//}
@@ -349,7 +350,8 @@ func QueryBlocks(chain *relayer.Chain, blocks []int64, db *sql.DB) error {
 					fee := sdkTx.(sdk.FeeTx)
 					var feeAmount, feeDenom string
 					if len(fee.GetFee()) == 0 {
-						//store empty values
+						feeAmount = "0"
+						feeDenom = ""
 					} else {
 						feeAmount = fee.GetFee()[0].Amount.String()
 						feeDenom = fee.GetFee()[0].Denom
