@@ -346,18 +346,36 @@ func QueryBlocks(chain *relayer.Chain, blocks []int64, db *sql.DB) error {
 						fmt.Printf("[Height %d] {%d/%d txs} - Failed to query tx results. Err: %s \n", block.Block.Height, i+1, len(block.Block.Data.Txs), err.Error())
 						continue
 					}
+					fee := sdkTx.(sdk.FeeTx)
+					var feeAmount, feeDenom string
+					if len(fee.GetFee()) == 0 {
+						//store empty values
+					} else {
+						feeAmount = fee.GetFee()[0].Amount.String()
+						feeDenom = fee.GetFee()[0].Denom
+					}
 
+					//TODO remove these update queries after catching up with current blocks in prod
 					if txRes.TxResult.Code > 0 {
 						json := fmt.Sprintf("{\"error\":\"%s\"}", txRes.TxResult.Log)
-						err = insertTxRow(tx.Hash(), chain.ChainID, json, h, txRes.TxResult.GasUsed, txRes.TxResult.GasWanted, block.Block.Time, db, txRes.TxResult.Code)
+						err = insertTxRow(tx.Hash(), chain.ChainID, json, feeAmount, feeDenom, h, txRes.TxResult.GasUsed,
+							txRes.TxResult.GasWanted, block.Block.Time, db, txRes.TxResult.Code)
 						if err != nil {
+							err2 := updateTxFeeInfo(feeAmount, feeDenom, tx.Hash(), db)
+							if err2 != nil {
+								fmt.Printf("Failed to update tx with fee information. Err: %s \n", err2.Error())
+							}
 							fmt.Printf("[Height %d] {%d/%d txs} - Failed to write tx to db. Err: %s \n", block.Block.Height, i+1, len(block.Block.Data.Txs), err.Error())
 						} else {
 							fmt.Printf("[Height %d] {%d/%d txs} - Successfuly wrote tx to db with %d msgs. \n", block.Block.Height, i+1, len(block.Block.Data.Txs), len(sdkTx.GetMsgs()))
 						}
 					} else {
-						err = insertTxRow(tx.Hash(), chain.ChainID, txRes.TxResult.Log, h, txRes.TxResult.GasUsed, txRes.TxResult.GasWanted, block.Block.Time, db, txRes.TxResult.Code)
+						err = insertTxRow(tx.Hash(), chain.ChainID, txRes.TxResult.Log, feeAmount, feeDenom, h, txRes.TxResult.GasUsed, txRes.TxResult.GasWanted, block.Block.Time, db, txRes.TxResult.Code)
 						if err != nil {
+							err2 := updateTxFeeInfo(feeAmount, feeDenom, tx.Hash(), db)
+							if err2 != nil {
+								fmt.Printf("Failed to update tx with fee information. Err: %s \n", err2.Error())
+							}
 							fmt.Printf("[Height %d] {%d/%d txs} - Failed to write tx to db. Err: %s \n", block.Block.Height, i+1, len(block.Block.Data.Txs), err.Error())
 						} else {
 							fmt.Printf("[Height %d] {%d/%d txs} - Successfuly wrote tx to db with %d msgs. \n", block.Block.Height, i+1, len(block.Block.Data.Txs), len(sdkTx.GetMsgs()))
@@ -395,6 +413,18 @@ func connectToDatabase(driver, connString string) (*sql.DB, error) {
 	return db, nil
 }
 
+func updateTxFeeInfo(feeAmount, feeDenom string, hash []byte, db *sql.DB) error {
+	query := "UPDATE txs " +
+		"SET fee_amount = $1, " +
+		"fee_denom = $2 " +
+		"WHERE hash = $3"
+	_, err := db.Exec(query, feeAmount, feeDenom, hash)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 func createTables(db *sql.DB) error {
 	txs := "CREATE TABLE IF NOT EXISTS txs ( " +
 		"hash bytea PRIMARY KEY, " +
@@ -403,6 +433,8 @@ func createTables(db *sql.DB) error {
 		"block_height BIGINT NOT NULL, " +
 		"raw_log JSONB NOT NULL," +
 		"code INT NOT NULL, " +
+		"fee_amount TEXT, " +
+		"fee_denom TEXT, " +
 		"gas_used BIGINT NOT NULL," +
 		"gas_wanted BIGINT NOT NULL" +
 		")"
@@ -527,13 +559,13 @@ func handleMsg(c *relayer.Chain, msg sdk.Msg, msgIndex int, height int64, hash [
 	}
 }
 
-func insertTxRow(hash []byte, chainid, log string, height, gasUsed, gasWanted int64, timestamp time.Time, db *sql.DB, code uint32) error {
-	stmt, err := db.Prepare("INSERT INTO txs(hash, block_time, chainid, block_height, raw_log, code, gas_used, gas_wanted) VALUES($1, $2, $3, $4, $5, $6, $7, $8)")
+func insertTxRow(hash []byte, chainid, log, feeAmount, feeDenom string, height, gasUsed, gasWanted int64, timestamp time.Time, db *sql.DB, code uint32) error {
+	stmt, err := db.Prepare("INSERT INTO txs(hash, block_time, chainid, block_height, raw_log, code, gas_used, gas_wanted, fee_amount, fee_denom) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)")
 	if err != nil {
 		return fmt.Errorf("Fail to create query for new tx. Err: %s \n", err.Error())
 	}
 
-	_, err = stmt.Exec(hash, timestamp, chainid, height, log, code, gasUsed, gasWanted)
+	_, err = stmt.Exec(hash, timestamp, chainid, height, log, code, gasUsed, gasWanted, feeAmount, feeDenom)
 	if err != nil {
 		return fmt.Errorf("Fail to execute query for new tx. Err: %s \n", err.Error())
 	}
@@ -667,7 +699,6 @@ func getRecvPacketsForPeriod(chainId, srcChan, dstChan string, db *sql.DB, start
 
 func getTransferedAmounts(chain *relayer.Chain, start, end time.Time, db *sql.DB) (map[string]int64, error) {
 	amounts := make(map[string]int64, 1)
-
 	query := "SELECT amount, denom " +
 		"FROM msg_transfer " +
 		"INNER JOIN txs tx ON msg_transfer.tx_hash=tx.hash " +
@@ -675,7 +706,6 @@ func getTransferedAmounts(chain *relayer.Chain, start, end time.Time, db *sql.DB
 		"AND block_time < $2 " +
 		"AND chainid = $3 " +
 		"AND code = 0"
-
 	rows, err := db.Query(query, start.Format("2006-01-02 15:04:05"), end.Format("2006-01-02 15:04:05"), chain.ChainID)
 	if err != nil {
 		return nil, err
@@ -690,8 +720,6 @@ func getTransferedAmounts(chain *relayer.Chain, start, end time.Time, db *sql.DB
 			return nil, err
 		}
 
-		// if denom has prefix 'ibc/' then query the denom before adding to the map
-		// if denom is native (i.e. no prefix 'ibc/' then just add to the map
 		if strings.Contains(denom, "ibc/") {
 			denomRes, err := chain.QueryDenomTrace(strings.Trim(denom, "ibc/"))
 			if err != nil {
@@ -701,7 +729,6 @@ func getTransferedAmounts(chain *relayer.Chain, start, end time.Time, db *sql.DB
 			}
 		}
 
-		// parse each row
 		if _, exists := amounts[denom]; exists {
 			amounts[denom] = amounts[denom] + amount
 		} else {
@@ -712,6 +739,5 @@ func getTransferedAmounts(chain *relayer.Chain, start, end time.Time, db *sql.DB
 	if rows.Err() != nil {
 		return nil, err
 	}
-
 	return amounts, nil
 }
