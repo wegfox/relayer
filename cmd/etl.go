@@ -276,9 +276,9 @@ $ %s etl qos sentinelhub-2 --conn "host=127.0.0.1 port=5432 user=anon dbname=rel
 			// If the user does not provide a height, attempt to use the last height stored in the DB
 			// & if there are no previous entries in db then start from height 1
 			srcStart, _ := cmd.Flags().GetInt64("height")
-			if srcStart == 1 {
-				srcStart, _ = getLastStoredBlock(chain.ChainID, db)
-			}
+			//if srcStart == 1 {
+			//	srcStart, _ = getLastStoredBlock(chain.ChainID, db)
+			//}
 
 			srcBlocks, err := makeBlockArray(chain, srcStart)
 			if err != nil {
