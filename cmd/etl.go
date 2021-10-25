@@ -276,10 +276,9 @@ $ %s etl qos sentinelhub-2 --conn "host=127.0.0.1 port=5432 user=anon dbname=rel
 			// If the user does not provide a height, attempt to use the last height stored in the DB
 			// & if there are no previous entries in db then start from height 1
 			srcStart, _ := cmd.Flags().GetInt64("height")
-			//TODO uncomment this
-			//if srcStart == 1 {
-			//	srcStart, _ = getLastStoredBlock(chain.ChainID, db)
-			//}
+			if srcStart == 1 {
+				srcStart, _ = getLastStoredBlock(chain.ChainID, db)
+			}
 
 			srcBlocks, err := makeBlockArray(chain, srcStart)
 			if err != nil {
@@ -357,16 +356,11 @@ func QueryBlocks(chain *relayer.Chain, blocks []int64, db *sql.DB) error {
 						feeDenom = fee.GetFee()[0].Denom
 					}
 
-					//TODO remove these update queries after catching up with current blocks in prod
 					if txRes.TxResult.Code > 0 {
 						json := fmt.Sprintf("{\"error\":\"%s\"}", txRes.TxResult.Log)
 						err = insertTxRow(tx.Hash(), chain.ChainID, json, feeAmount, feeDenom, h, txRes.TxResult.GasUsed,
 							txRes.TxResult.GasWanted, block.Block.Time, db, txRes.TxResult.Code)
 						if err != nil {
-							err2 := updateTxFeeInfo(feeAmount, feeDenom, tx.Hash(), db)
-							if err2 != nil {
-								fmt.Printf("Failed to update tx with fee information. Err: %s \n", err2.Error())
-							}
 							fmt.Printf("[Height %d] {%d/%d txs} - Failed to write tx to db. Err: %s \n", block.Block.Height, i+1, len(block.Block.Data.Txs), err.Error())
 						} else {
 							fmt.Printf("[Height %d] {%d/%d txs} - Successfuly wrote tx to db with %d msgs. \n", block.Block.Height, i+1, len(block.Block.Data.Txs), len(sdkTx.GetMsgs()))
@@ -374,10 +368,6 @@ func QueryBlocks(chain *relayer.Chain, blocks []int64, db *sql.DB) error {
 					} else {
 						err = insertTxRow(tx.Hash(), chain.ChainID, txRes.TxResult.Log, feeAmount, feeDenom, h, txRes.TxResult.GasUsed, txRes.TxResult.GasWanted, block.Block.Time, db, txRes.TxResult.Code)
 						if err != nil {
-							err2 := updateTxFeeInfo(feeAmount, feeDenom, tx.Hash(), db)
-							if err2 != nil {
-								fmt.Printf("Failed to update tx with fee information. Err: %s \n", err2.Error())
-							}
 							fmt.Printf("[Height %d] {%d/%d txs} - Failed to write tx to db. Err: %s \n", block.Block.Height, i+1, len(block.Block.Data.Txs), err.Error())
 						} else {
 							fmt.Printf("[Height %d] {%d/%d txs} - Successfuly wrote tx to db with %d msgs. \n", block.Block.Height, i+1, len(block.Block.Data.Txs), len(sdkTx.GetMsgs()))
