@@ -95,6 +95,7 @@ func NewRootCmd() *cobra.Command {
 		getVersionCmd(),
 		flags.LineBreak,
 		etlCmd(),
+		fetchCmd(),
 	)
 
 	return rootCmd
