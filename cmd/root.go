@@ -93,7 +93,6 @@ func NewRootCmd() *cobra.Command {
 		devCommand(),
 		testnetsCmd(),
 		getVersionCmd(),
-
 		flags.LineBreak,
 		etlCmd(),
 	)
