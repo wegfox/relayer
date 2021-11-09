@@ -52,18 +52,18 @@ func etlCmd() *cobra.Command {
 
 func transferAmounts() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "transfer-amounts [chainid]",
+		Use:     "transfer-amounts [path]",
 		Aliases: []string{"t"},
 		Short:   "retrieve token transfer amounts on a given chain for a specified date-time period",
 		Args:    cobra.ExactArgs(1),
 		Example: strings.TrimSpace(fmt.Sprintf(`
-$ %s etl transfer-amounts osmosis-1 --start YYYY-MM-DD HH:MM:SS --end YYYY-MM-DD HH:MM:SS
-$ %s e t sentinelhub-2 --start YYYY-MM-DD HH:MM:SS`,
+$ %s etl transfer-amounts hubosmo --start YYYY-MM-DD HH:MM:SS --end YYYY-MM-DD HH:MM:SS
+$ %s e t osmoterra --start YYYY-MM-DD HH:MM:SS`,
 			appName, appName,
 		)),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			const driverName = "postgres"
-			chainid, err := config.Chains.Get(args[0])
+			path, err := config.Paths.Get(args[0])
 			if err != nil {
 				return err
 			}
@@ -89,13 +89,46 @@ $ %s e t sentinelhub-2 --start YYYY-MM-DD HH:MM:SS`,
 				return err
 			}
 
-			fmt.Printf("[%s] Retrieving transfer amounts for %s - %s\n", chainid.ChainID,
-				strtTime.Format("2006-01-02 15:04:05"), endTime.Format("2006-01-02 15:04:05"))
+			srcChain, err := config.Chains.Get(path.Src.ChainID)
+			if err != nil {
+				return err
+			}
+			srcChan := path.Src.ChannelID
+			dstChain, err := config.Chains.Get(path.Dst.ChainID)
+			if err != nil {
+				return err
+			}
+			dstChan := path.Dst.ChannelID
 
-			amounts, err := getTransferedAmounts(chainid, strtTime, endTime, db)
+			fmt.Printf("[%s:%s <-> %s:%s] Fetching transfers for %s - %s\n", srcChain.ChainID, srcChan,
+				dstChain.ChainID, dstChan, strtTime.Format("2006-01-02 15:04:05"), endTime.Format("2006-01-02 15:04:05"))
 
-			for denom, amount := range amounts {
-				fmt.Printf("Denom: %s \nAmount: %d \n-----------------------------------------\n", denom, amount)
+			srcAmounts, err := getTransferedAmounts(srcChain, srcChan, strtTime, endTime, db)
+			if err != nil {
+				return err
+			}
+			dstAmounts, err := getTransferedAmounts(dstChain, dstChan, strtTime, endTime, db)
+			if err != nil {
+				return err
+			}
+
+			// Combine src & dst transfer amounts into one map
+			totalAmounts := srcAmounts
+			for denom, amount := range dstAmounts {
+				if _, exists := totalAmounts[denom]; exists {
+					totalAmounts[denom] = totalAmounts[denom] + amount
+				} else {
+					totalAmounts[denom] = amount
+				}
+			}
+
+			for denom, amount := range totalAmounts {
+				if len(denom) >= 6 {
+					fmt.Printf("[%s:%s <-> %s:%s] Denom: %s \t Amount: %d \n", srcChain.ChainID, srcChan, dstChain.ChainID, dstChan, denom, amount)
+				} else {
+					fmt.Printf("[%s:%s <-> %s:%s] Denom: %s \t\t Amount: %d \n", srcChain.ChainID, srcChan, dstChain.ChainID, dstChan, denom, amount)
+				}
+
 			}
 
 			return nil
@@ -331,7 +364,7 @@ func parseTxs(chain *relayer.Chain, block *coretypes.ResultBlock, h int64, db *s
 	for i, tx := range block.Block.Data.Txs {
 		sdkTx, err := chain.Encoding.TxConfig.TxDecoder()(tx)
 		if err != nil {
-			// TODO application specific txs fail here (e.g. DEX swaps, Akash deployments, etc.), add support in future
+			// TODO application specific txs fail here (e.g. DEX swaps, Akash deployments, etc.)
 			fmt.Printf("[Height %d] {%d/%d txs} - Failed to decode tx. Err: %s \n", block.Block.Height, i+1, len(block.Block.Data.Txs), err.Error())
 			continue
 		}
@@ -662,16 +695,18 @@ func getRecvPacketsForPeriod(chainId, srcChan, dstChan string, db *sql.DB, start
 	return recvPackets, nil
 }
 
-func getTransferedAmounts(chain *relayer.Chain, start, end time.Time, db *sql.DB) (map[string]int64, error) {
+func getTransferedAmounts(chain *relayer.Chain, path string, start, end time.Time, db *sql.DB) (map[string]int64, error) {
 	amounts := make(map[string]int64, 1)
-	query := "SELECT amount, denom " +
+	query := "SELECT sum(amount::bigint), denom " +
 		"FROM msg_transfer " +
 		"INNER JOIN txs tx ON msg_transfer.tx_hash=tx.hash " +
 		"WHERE block_time >= $1 " +
 		"AND block_time < $2 " +
 		"AND chainid = $3 " +
-		"AND code = 0"
-	rows, err := db.Query(query, start.Format("2006-01-02 15:04:05"), end.Format("2006-01-02 15:04:05"), chain.ChainID)
+		"AND src_chan = $4 " +
+		"AND code = 0 " +
+		"GROUP BY denom"
+	rows, err := db.Query(query, start.Format("2006-01-02 15:04:05"), end.Format("2006-01-02 15:04:05"), chain.ChainID, path)
 	if err != nil {
 		return nil, err
 	}
@@ -688,17 +723,13 @@ func getTransferedAmounts(chain *relayer.Chain, start, end time.Time, db *sql.DB
 		if strings.Contains(denom, "ibc/") {
 			denomRes, err := chain.QueryDenomTrace(strings.Trim(denom, "ibc/"))
 			if err != nil {
-				fmt.Printf("ERRO QUERYING DENOM %s. Err: %s \n", denom, err.Error())
+				fmt.Printf("ERROR QUERYING DENOM %s. Err: %s \n", denom, err.Error())
 			} else {
 				denom = denomRes.DenomTrace.BaseDenom
 			}
 		}
 
-		if _, exists := amounts[denom]; exists {
-			amounts[denom] = amounts[denom] + amount
-		} else {
-			amounts[denom] = amount
-		}
+		amounts[denom] = amount
 	}
 
 	if rows.Err() != nil {
@@ -714,3 +745,59 @@ func logTxInsertion(err error, msgIndex, msgs, txs int, height int64) {
 		fmt.Printf("[Height %d] {%d/%d txs} - Successfuly wrote tx to db with %d msgs. \n", height, msgIndex+1, txs, msgs)
 	}
 }
+
+/*
+type ErrRateLimitExceeded error
+
+type priceHistory struct {
+	ID     string `json:"id"`
+	Symbol string `json:"symbol"`
+	Name   string `json:"name"`
+	Image  struct {
+		Thumb string `json:"thumb"`
+		Small string `json:"small"`
+	} `json:"image"`
+	MarketData struct {
+		CurrentPrice map[string]float64 `json:"current_price"`
+		MarketCap    map[string]float64 `json:"market_cap"`
+		TotalVolume  map[string]float64 `json:"total_volume"`
+	} `json:"market_data"`
+}
+
+func GetPrice(date time.Time, ) (float64, error) {
+	url := fmt.Sprintf("https://api.coingecko.com/api/v3/coins/%s/history?date=%s&localization=false", cr.CoinGeckoID, fmt.Sprintf("%d-%d-%d", date.Day(), date.Month(), date.Year()))
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return 0, err
+	}
+	req.Header.Set("Accept", "application/json")
+
+	var resp *http.Response
+	retry.Do(func() error {
+		resp, err = http.DefaultClient.Do(req)
+		switch {
+		case resp.StatusCode == 429:
+			return ErrRateLimitExceeded(fmt.Errorf("429"))
+		case (resp.StatusCode < 200 || resp.StatusCode > 299):
+			return fmt.Errorf("non 2xx or 429 status code %d", resp.StatusCode)
+		case err != nil:
+			return err
+		default:
+			return nil
+		}
+	}, retry.RetryIf(func(err error) bool {
+		_, ok := err.(ErrRateLimitExceeded)
+		return ok
+	}), retry.Delay(time.Second*60))
+	defer resp.Body.Close()
+	bz, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return 0, err
+	}
+	data := priceHistory{}
+	if err := json.Unmarshal(bz, &data); err != nil {
+		return 0, err
+	}
+	return data.MarketData.CurrentPrice["usd"], nil
+}
+*/
