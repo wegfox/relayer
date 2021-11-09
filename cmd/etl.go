@@ -26,8 +26,8 @@ import (
 
 	"github.com/avast/retry-go"
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	transfertypes "github.com/cosmos/ibc-go/modules/apps/transfer/types"
-	channeltypes "github.com/cosmos/ibc-go/modules/core/04-channel/types"
+	transfertypes "github.com/cosmos/ibc-go/v2/modules/apps/transfer/types"
+	channeltypes "github.com/cosmos/ibc-go/v2/modules/core/04-channel/types"
 	"github.com/cosmos/relayer/relayer"
 	_ "github.com/lib/pq"
 	"github.com/spf13/cobra"
