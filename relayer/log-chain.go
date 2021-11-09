@@ -125,7 +125,7 @@ func getTxActions(act []string) string {
 func (c *Chain) logRetryQueryPacketAcknowledgements(height uint64, n uint, err error) {
 	if c.debug {
 		c.Log(fmt.Sprintf("- [%s]@{%d} - try(%d/%d) query packet acknowledgements: %s",
-			c.ChainID, height, n+1, rtyAttNum, err))
+			c.ChainID, height, n+1, RtyAttNum, err))
 	}
 }
 
@@ -135,4 +135,11 @@ func (c *Chain) logUnreceivedPackets(dst *Chain, packetType string, log string) 
 
 func (c *Chain) errQueryUnrelayedPacketAcks() error {
 	return fmt.Errorf("no error on QueryPacketUnrelayedAcknowledgements for %s, however response is nil", c.ChainID)
+}
+
+func (c *Chain) LogRetryGetBlock(n uint, err error, height int64) {
+	if c.debug {
+		c.Log(fmt.Sprintf("- [%s] -> try(%d/%d) get block %d. Err: %s",
+			c.ChainID, n+1, RtyAttNum, height, err))
+	}
 }

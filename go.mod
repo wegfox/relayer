@@ -12,6 +12,7 @@ require (
 	github.com/go-git/go-git/v5 v5.4.2
 	github.com/gogo/protobuf v1.3.3
 	github.com/gorilla/mux v1.8.0
+	github.com/lib/pq v1.10.2
 	github.com/moby/term v0.0.0-20201101162038-25d840ce174a // indirect
 	github.com/ory/dockertest/v3 v3.6.2
 	github.com/spf13/cobra v1.2.1
@@ -89,7 +90,6 @@ require (
 	github.com/kevinburke/ssh_config v0.0.0-20201106050909-4977a11b4351 // indirect
 	github.com/keybase/go-keychain v0.0.0-20190712205309-48d3d31d256d // indirect
 	github.com/klauspost/compress v1.11.7 // indirect
-	github.com/lib/pq v1.10.2 // indirect
 	github.com/libp2p/go-buffer-pool v0.0.2 // indirect
 	github.com/magiconair/properties v1.8.5 // indirect
 	github.com/mattn/go-isatty v0.0.14 // indirect

@@ -53,12 +53,12 @@ func heightFlag(cmd *cobra.Command) *cobra.Command {
 }
 
 func paginationFlags(cmd *cobra.Command) *cobra.Command {
-	cmd.Flags().Uint64P(flags.FlagOffset, "o", 0, "pagination offset for query")
-	cmd.Flags().Uint64P(flags.FlagLimit, "l", 10, "pagination limit for query")
-	if err := viper.BindPFlag(flags.FlagOffset, cmd.Flags().Lookup(flags.FlagOffset)); err != nil {
+	cmd.Flags().Uint64P(flags.FlagPage, "p", 1, "pagination offset for query")
+	cmd.Flags().Uint64P("count", "c", 10, "pagination limit for query")
+	if err := viper.BindPFlag(flags.FlagPage, cmd.Flags().Lookup(flags.FlagPage)); err != nil {
 		panic(err)
 	}
-	if err := viper.BindPFlag(flags.FlagLimit, cmd.Flags().Lookup(flags.FlagLimit)); err != nil {
+	if err := viper.BindPFlag("count", cmd.Flags().Lookup("count")); err != nil {
 		panic(err)
 	}
 	return cmd

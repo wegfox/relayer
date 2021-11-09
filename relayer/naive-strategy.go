@@ -78,7 +78,7 @@ func (nrs *NaiveStrategy) UnrelayedSequences(src, dst *Chain) (*RelaySequences, 
 			default:
 				return nil
 			}
-		}, rtyAtt, rtyDel, rtyErr, retry.OnRetry(func(n uint, err error) {
+		}, RtyAtt, RtyDel, RtyErr, retry.OnRetry(func(n uint, err error) {
 			srch, _ = src.QueryLatestHeight()
 		})); err != nil {
 			return err
@@ -101,7 +101,7 @@ func (nrs *NaiveStrategy) UnrelayedSequences(src, dst *Chain) (*RelaySequences, 
 			default:
 				return nil
 			}
-		}, rtyAtt, rtyDel, rtyErr, retry.OnRetry(func(n uint, err error) {
+		}, RtyAtt, RtyDel, RtyErr, retry.OnRetry(func(n uint, err error) {
 			dsth, _ = dst.QueryLatestHeight()
 		})); err != nil {
 			return err
@@ -121,7 +121,7 @@ func (nrs *NaiveStrategy) UnrelayedSequences(src, dst *Chain) (*RelaySequences, 
 		return retry.Do(func() error {
 			rs.Src, err = dst.QueryUnreceivedPackets(uint64(dsth), srcPacketSeq)
 			return err
-		}, rtyAtt, rtyDel, rtyErr, retry.OnRetry(func(n uint, err error) {
+		}, RtyAtt, RtyDel, RtyErr, retry.OnRetry(func(n uint, err error) {
 			dsth, _ = dst.QueryLatestHeight()
 		}))
 	})
@@ -131,7 +131,7 @@ func (nrs *NaiveStrategy) UnrelayedSequences(src, dst *Chain) (*RelaySequences, 
 		return retry.Do(func() error {
 			rs.Dst, err = src.QueryUnreceivedPackets(uint64(srch), dstPacketSeq)
 			return err
-		}, rtyAtt, rtyDel, rtyErr, retry.OnRetry(func(n uint, err error) {
+		}, RtyAtt, RtyDel, RtyErr, retry.OnRetry(func(n uint, err error) {
 			dsth, _ = dst.QueryLatestHeight()
 		}))
 	})
@@ -170,7 +170,7 @@ func (nrs *NaiveStrategy) UnrelayedAcknowledgements(src, dst *Chain) (*RelaySequ
 			default:
 				return nil
 			}
-		}, rtyAtt, rtyDel, rtyErr, retry.OnRetry(func(n uint, err error) {
+		}, RtyAtt, RtyDel, RtyErr, retry.OnRetry(func(n uint, err error) {
 			src.logRetryQueryPacketAcknowledgements(uint64(srch), n, err)
 			if srch, err = src.QueryLatestHeight(); err != nil {
 				return
@@ -196,7 +196,7 @@ func (nrs *NaiveStrategy) UnrelayedAcknowledgements(src, dst *Chain) (*RelaySequ
 			default:
 				return nil
 			}
-		}, rtyAtt, rtyDel, rtyErr, retry.OnRetry(func(n uint, err error) {
+		}, RtyAtt, RtyDel, RtyErr, retry.OnRetry(func(n uint, err error) {
 			dst.logRetryQueryPacketAcknowledgements(uint64(dsth), n, err)
 			if dsth, err = dst.QueryLatestHeight(); err != nil {
 				return
@@ -526,7 +526,7 @@ func (nrs *NaiveStrategy) RelayPackets(src, dst *Chain, sp *RelaySequences) erro
 		if err = retry.Do(func() error {
 			recvMsg, timeoutMsg, err = relayPacketFromSequence(src, dst, uint64(srch), uint64(dsth), seq)
 			return err
-		}, rtyAtt, rtyDel, rtyErr, retry.OnRetry(func(n uint, err error) {
+		}, RtyAtt, RtyDel, RtyErr, retry.OnRetry(func(n uint, err error) {
 			srch, dsth, _ = QueryLatestHeights(src, dst)
 		})); err != nil {
 			return err
@@ -550,7 +550,7 @@ func (nrs *NaiveStrategy) RelayPackets(src, dst *Chain, sp *RelaySequences) erro
 		if err = retry.Do(func() error {
 			recvMsg, timeoutMsg, err = relayPacketFromSequence(dst, src, uint64(dsth), uint64(srch), seq)
 			return nil
-		}, rtyAtt, rtyDel, rtyErr, retry.OnRetry(func(n uint, err error) {
+		}, RtyAtt, RtyDel, RtyErr, retry.OnRetry(func(n uint, err error) {
 			srch, dsth, _ = QueryLatestHeights(src, dst)
 		})); err != nil {
 			return err
@@ -623,13 +623,13 @@ func relayPacketFromSequence(src, dst *Chain, srch, dsth, seq uint64) (sdk.Msg, 
 	switch {
 	case err != nil:
 		return nil, nil, err
-	case len(txs) == 0:
+	case len(txs.Txs) == 0:
 		return nil, nil, fmt.Errorf("no transactions returned with query")
-	case len(txs) > 1:
+	case len(txs.Txs) > 1:
 		return nil, nil, fmt.Errorf("more than one transaction returned with query")
 	}
 
-	rcvPackets, timeoutPackets, err := relayPacketsFromResultTx(src, dst, int64(dsth), txs[0])
+	rcvPackets, timeoutPackets, err := relayPacketsFromResultTx(src, dst, int64(dsth), txs.Txs[0])
 	switch {
 	case err != nil:
 		return nil, nil, err
@@ -675,13 +675,13 @@ func acknowledgementFromSequence(src, dst *Chain, dsth, seq uint64) (sdk.Msg, er
 	switch {
 	case err != nil:
 		return nil, err
-	case len(txs) == 0:
+	case len(txs.Txs) == 0:
 		return nil, fmt.Errorf("no transactions returned with query")
-	case len(txs) > 1:
+	case len(txs.Txs) > 1:
 		return nil, fmt.Errorf("more than one transaction returned with query")
 	}
 
-	acks, err := acknowledgementsFromResultTx(src.PathEnd, dst.PathEnd, txs[0])
+	acks, err := acknowledgementsFromResultTx(src.PathEnd, dst.PathEnd, txs.Txs[0])
 	switch {
 	case err != nil:
 		return nil, err

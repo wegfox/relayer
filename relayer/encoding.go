@@ -100,11 +100,12 @@ func (pc *ProtoCodec) MustMarshalLengthPrefixed(o codec.ProtoMarshaler) []byte {
 
 // Unmarshal implements BinaryMarshaler.Unmarshal method.
 func (pc *ProtoCodec) Unmarshal(bz []byte, ptr codec.ProtoMarshaler) error {
-	defer pc.useContext()()
+	done := pc.useContext()
 	err := ptr.Unmarshal(bz)
 	if err != nil {
 		return err
 	}
+	done()
 	err = types.UnpackInterfaces(ptr, pc)
 	if err != nil {
 		return err

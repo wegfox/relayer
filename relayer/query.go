@@ -594,7 +594,7 @@ func (c *Chain) QueryTx(hashHex string) (*ctypes.ResultTx, error) {
 }
 
 // QueryTxs returns an array of transactions given a tag
-func (c *Chain) QueryTxs(height uint64, page, limit int, events []string) ([]*ctypes.ResultTx, error) {
+func (c *Chain) QueryTxs(height uint64, page, count int, events []string) (*ctypes.ResultTxSearch, error) {
 	if len(events) == 0 {
 		return nil, errors.New("must declare at least one event to search")
 	}
@@ -603,15 +603,15 @@ func (c *Chain) QueryTxs(height uint64, page, limit int, events []string) ([]*ct
 		return nil, errors.New("page must greater than 0")
 	}
 
-	if limit <= 0 {
-		return nil, errors.New("limit must greater than 0")
+	if count <= 0 {
+		return nil, errors.New("count must greater than 0")
 	}
 
-	res, err := c.Client.TxSearch(context.Background(), strings.Join(events, " AND "), true, &page, &limit, "")
+	res, err := c.Client.TxSearch(context.Background(), strings.Join(events, " AND "), false, &page, &count, "")
 	if err != nil {
 		return nil, err
 	}
-	return res.Txs, nil
+	return res, nil
 }
 
 // QueryABCI is an affordance for querying the ABCI server associated with a chain

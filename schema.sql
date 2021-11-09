@@ -1,0 +1,6 @@
+CREATE TABLE IF NOT EXISTS `txs` (
+    `hash` VARCHAR PRIMARY KEY,
+    `chainid` VARCHAR NOT NULL,
+    `datetime` TIMESTAMP NOT NULL,
+
+);
