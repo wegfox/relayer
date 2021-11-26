@@ -322,6 +322,8 @@ func queryBlocks(chain *relayer.Chain, blocks []int64, db *sql.DB) error {
 	)
 	failedBlocks := make([]int64, 0)
 	sem := make(chan struct{}, 100)
+	coinGeckoData := buildCoinGeckoData()
+	cache := make(map[string]*CacheEntry, 3)
 
 	for _, h := range blocks {
 		h := h
@@ -351,7 +353,7 @@ func queryBlocks(chain *relayer.Chain, blocks []int64, db *sql.DB) error {
 			}
 
 			if block != nil {
-				parseTxs(chain, block, h, db)
+				parseTxs(chain, block, h, db, coinGeckoData, cache)
 			}
 
 			<-sem
@@ -367,9 +369,7 @@ func queryBlocks(chain *relayer.Chain, blocks []int64, db *sql.DB) error {
 	return nil
 }
 
-func parseTxs(chain *relayer.Chain, block *coretypes.ResultBlock, h int64, db *sql.DB) {
-	coinGeckoData := buildCoinGeckoData()
-
+func parseTxs(chain *relayer.Chain, block *coretypes.ResultBlock, h int64, db *sql.DB, coinGeckoData *CoinGeckoData, cache map[string]*CacheEntry) {
 	for i, tx := range block.Block.Data.Txs {
 		sdkTx, err := chain.Encoding.TxConfig.TxDecoder()(tx)
 		if err != nil {
@@ -386,8 +386,7 @@ func parseTxs(chain *relayer.Chain, block *coretypes.ResultBlock, h int64, db *s
 
 		fee := sdkTx.(sdk.FeeTx)
 		var feeAmount, feeDenom string
-		var tokenValue float64
-		tokenValue = 0
+		tokenValue := float64(0)
 
 		if len(fee.GetFee()) == 0 {
 			feeAmount = "0"
@@ -397,10 +396,16 @@ func parseTxs(chain *relayer.Chain, block *coretypes.ResultBlock, h int64, db *s
 			feeAmount = fee.GetFee()[0].Amount.String()
 			feeDenom = fee.GetFee()[0].Denom
 			if val, exists := coinGeckoData.Networks[feeDenom]; exists {
-				tokenValue, err = val.getPrice(block.Block.Time)
-				if err != nil {
-					fmt.Printf("Failed to get price of %s from Coin Gecko. Err: %s\n", val.Token, err.Error())
-					os.Exit(1)
+				// attempt to use cached token value if it exists, and it is from the same date.
+				// if the data has not been cached or newer data is needed query from CoinGecko API
+				if cacheEntry, exists := cache[feeDenom]; exists {
+					if DateEqual(block.Block.Time, cacheEntry.time) {
+						tokenValue = cacheEntry.value
+					} else {
+						tokenValue = GetPriceAndUpdateCache(cache, block.Block.Time, val)
+					}
+				} else {
+					tokenValue = GetPriceAndUpdateCache(cache, block.Block.Time, val)
 				}
 			}
 		}
@@ -433,7 +438,7 @@ func parseTxs(chain *relayer.Chain, block *coretypes.ResultBlock, h int64, db *s
 		}
 
 		for msgIndex, msg := range sdkTx.GetMsgs() {
-			handleMsg(chain, msg, msgIndex, block.Block.Height, tx.Hash(), db, coinGeckoData, block.Block.Time)
+			handleMsg(chain, msg, msgIndex, block.Block.Height, tx.Hash(), db, coinGeckoData, block.Block.Time, cache)
 		}
 	}
 }
@@ -461,7 +466,7 @@ func makeBlockArray(src *relayer.Chain, srcStart int64) ([]int64, error) {
 	return srcBlocks, nil
 }
 
-func handleMsg(c *relayer.Chain, msg sdk.Msg, msgIndex int, height int64, hash []byte, db *sql.DB, coinGeckoData *CoinGeckoData, time time.Time) {
+func handleMsg(c *relayer.Chain, msg sdk.Msg, msgIndex int, height int64, hash []byte, db *sql.DB, coinGeckoData *CoinGeckoData, time time.Time, cache map[string]*CacheEntry) {
 	switch m := msg.(type) {
 	case *transfertypes.MsgTransfer:
 		done := c.UseSDKContext()
@@ -480,19 +485,31 @@ func handleMsg(c *relayer.Chain, msg sdk.Msg, msgIndex int, height int64, hash [
 			} else {
 				denom = denomRes.DenomTrace.BaseDenom
 				if val, exists := coinGeckoData.Networks[denom]; exists {
-					tokenValue, err = val.getPrice(time)
-					if err != nil {
-						fmt.Printf("Failed to get price of %s from Coin Gecko. Err: %s\n", val.Token, err.Error())
-						os.Exit(1)
+					// attempt to use cached token value if it exists, and it is from the same date.
+					// if the data has not been cached or newer data is needed query from CoinGecko API
+					if cacheEntry, exists := cache[denom]; exists {
+						if DateEqual(cacheEntry.time, time) {
+							tokenValue = cacheEntry.value
+						} else {
+							tokenValue = GetPriceAndUpdateCache(cache, time, val)
+						}
+					} else {
+						tokenValue = GetPriceAndUpdateCache(cache, time, val)
 					}
 				}
 			}
 		} else {
 			if val, exists := coinGeckoData.Networks[denom]; exists {
-				tokenValue, err = val.getPrice(time)
-				if err != nil {
-					fmt.Printf("Failed to get price of %s from Coin Gecko. Err: %s\n", val.Token, err.Error())
-					os.Exit(1)
+				// attempt to use cached token value if it exists, and it is from the same date.
+				// if the data has not been cached or newer data is needed query from CoinGecko API
+				if cacheEntry, exists := cache[denom]; exists {
+					if DateEqual(cacheEntry.time, time) {
+						tokenValue = cacheEntry.value
+					} else {
+						tokenValue = GetPriceAndUpdateCache(cache, time, val)
+					}
+				} else {
+					tokenValue = GetPriceAndUpdateCache(cache, time, val)
 				}
 			}
 		}
@@ -862,6 +879,31 @@ type NetworkDetails struct {
 type CoinGeckoData struct {
 	Networks map[string]*NetworkDetails `yaml:"networks"`
 }
+
+type CacheEntry struct {
+	value float64
+	time  time.Time
+}
+
+func DateEqual(date1, date2 time.Time) bool {
+	y1, m1, d1 := date1.Date()
+	y2, m2, d2 := date2.Date()
+	return y1 == y2 && m1 == m2 && d1 == d2
+}
+
+func GetPriceAndUpdateCache(cache map[string]*CacheEntry, date time.Time, networkDetails *NetworkDetails) float64 {
+	tokenValue, err := networkDetails.getPrice(date)
+	if err != nil {
+		fmt.Printf("Failed to get price of %s from Coin Gecko. Err: %s\n", networkDetails.Token, err.Error())
+		os.Exit(1)
+	}
+	cache[networkDetails.Token] = &CacheEntry{
+		value: tokenValue,
+		time:  date,
+	}
+	return tokenValue
+}
+
 type ErrRateLimitExceeded error
 
 type priceHistory struct {
