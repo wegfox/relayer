@@ -723,29 +723,19 @@ func insertMsgAckRow(hash []byte, signer, srcChan, dstChan, srcPort, dstPort str
 
 func updateTxRow(hash []byte, db *sql.DB, tokenValue float64) error {
 	query := "UPDATE txs SET token_value = $1 WHERE hash = $2"
-	r, err := db.Exec(query, tokenValue, hash)
+	_, err := db.Exec(query, tokenValue, hash)
 	if err != nil {
 		return fmt.Errorf("Fail to execute query for updating tx. Err: %s \n", err.Error())
 	}
-	rows, err := r.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("Failure on checking rows affected. Err: %s \n", err.Error())
-	}
-	fmt.Printf("Rows affected by updating txs = %d \n", rows)
 	return nil
 }
 
 func updateTransferRow(hash []byte, denom string, db *sql.DB, tokenValue float64, msgIndex int) error {
 	query := "UPDATE msg_transfer SET token_value = $1, denom = $2 WHERE tx_hash = $3 AND msg_index = $4"
-	r, err := db.Exec(query, tokenValue, denom, hash, msgIndex)
+	_, err := db.Exec(query, tokenValue, denom, hash, msgIndex)
 	if err != nil {
 		return fmt.Errorf("Fail to execute query for updating msg_transfer. Err: %s ", err.Error())
 	}
-	rows, err := r.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("Failure on checking rows affected. Err: %s ", err.Error())
-	}
-	fmt.Printf("Rows affected by updating msg_transfer = %d \n", rows)
 	return nil
 }
 
@@ -895,7 +885,6 @@ func GetPriceAndUpdateCache(cache map[string]*CacheEntry, date time.Time, networ
 	tokenValue, err := networkDetails.getPrice(date)
 	if err != nil {
 		fmt.Printf("Failed to get price of %s from Coin Gecko. Err: %s\n", networkDetails.Token, err.Error())
-		os.Exit(1)
 	}
 	cache[networkDetails.Token] = &CacheEntry{
 		value: tokenValue,
