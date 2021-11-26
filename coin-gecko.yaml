@@ -1,0 +1,111 @@
+networks:
+  akashnet-2:
+    chain-id: "akashnet-2"
+    prefix: "akash"
+    token: "uakt"
+    coin-gecko-id: "akash-network"
+  cosmoshub-4:
+    chain-id: "cosmoshub-4"
+    prefix: "cosmos"
+    token: "uatom"
+    coin-gecko-id: "cosmos"
+  osmosis-1:
+    chain-id: "osmosis-1"
+    prefix: "osmo"
+    token: "uosmo"
+    coin-gecko-id: "osmosis"
+  sentinelhub-2:
+    chain-id: "sentinelhub-2"
+    prefix: "sent"
+    token: "udvpn"
+    coin-gecko-id: "sentinel"
+  juno-1:
+    chain-id: "juno-1"
+    prefix: "juno"
+    token: "ujuno"
+    coin-gecko-id: "juno-network"
+  columbus-5:
+    chain-id: "columbus-5"
+    prefix: "luna"
+    token: "uluna"
+    coin-gecko-id: "terra-luna"
+  terra-usd:
+    chain-id: "columbus-5"
+    prefix: "luna"
+    token: "uusd"
+    coin-gecko-id: "terrausd"
+  terra-krw:
+    chain-id: "columbus-5"
+    prefix: "luna"
+    token: "ukrw"
+    coin-gecko-id: "terra-krw"
+  e-money-ngm:
+    chain-id: "emoney-3"
+    prefix: "emoney"
+    token: "ungm"
+    coin-gecko-id: "e-money"
+  e-money-eur:
+    chain-id: "emoney-3"
+    prefix: "emoney"
+    token: "eeur"
+    coin-gecko-id: "e-money-eur"
+  persistence:
+    chain-id: "core-1"
+    prefix: "persistence"
+    token: "uxprt"
+    coin-gecko-id: "persistence"
+  iris:
+    chain-id: "irishub-1"
+    prefix: "iaa"
+    token: "uiris"
+    coin-gecko-id: "iris-network"
+  regen:
+    chain-id: "regen-1"
+    prefix: "regen"
+    token: "uregen"
+    coin-gecko-id: "regen"
+  likecoin:
+    chain-id: "likecoin-mainnet-2"
+    prefix: "cosmos"
+    token: "nanolike"
+    coin-gecko-id: "likecoin"
+  osmosis-ion:
+    chain-id: "osmosis-1"
+    prefix: "osmo"
+    token: "uion"
+    coin-gecko-id: "ion"
+  ixo:
+    chain-id: "impacthub-3"
+    prefix: "ixo"
+    token: "uixo"
+    coin-gecko-id: "ixo"
+  bitsong:
+    chain-id: "bitsong-2b"
+    prefix: "btsg"
+    token: "xbtsg"
+    coin-gecko-id: "bitsong"
+  xki:
+    chain-id: "kichain-2"
+    prefix: "xki"
+    token: "uxki"
+    coin-gecko-id: "ki"
+  crypto.org:
+    chain-id: "crypto-org-chain-mainnet-1"
+    prefix: "cro"
+    token: "basecro"
+    coin-gecko-id: "crypto-com-chain"
+  secret-network:
+    chain-id: "secret"
+    prefix: "secret"
+    token: "uscrt"
+    coin-gecko-id: "secret"
+  starname:
+    chain-id: "iov-mainnet-ibc"
+    prefix: "star"
+    token: "uiov"
+    coin-gecko-id: "starname"
+  bitcanna:
+    chain-id: "bitcanna-1"
+    prefix: "bcna"
+    token: "ubcna"
+    coin-gecko-id: "bitcanna"
