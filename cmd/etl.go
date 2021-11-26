@@ -19,12 +19,18 @@ import (
 	"context"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"io/ioutil"
+	"net/http"
+	"os"
+	"path"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/avast/retry-go"
+	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	transfertypes "github.com/cosmos/ibc-go/v2/modules/apps/transfer/types"
 	channeltypes "github.com/cosmos/ibc-go/v2/modules/core/04-channel/types"
@@ -33,6 +39,7 @@ import (
 	"github.com/spf13/cobra"
 	coretypes "github.com/tendermint/tendermint/rpc/core/types"
 	"golang.org/x/sync/errgroup"
+	"gopkg.in/yaml.v3"
 )
 
 func etlCmd() *cobra.Command {
@@ -63,7 +70,7 @@ $ %s e t osmoterra --start YYYY-MM-DD HH:MM:SS`,
 		)),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			const driverName = "postgres"
-			path, err := config.Paths.Get(args[0])
+			p, err := config.Paths.Get(args[0])
 			if err != nil {
 				return err
 			}
@@ -89,16 +96,16 @@ $ %s e t osmoterra --start YYYY-MM-DD HH:MM:SS`,
 				return err
 			}
 
-			srcChain, err := config.Chains.Get(path.Src.ChainID)
+			srcChain, err := config.Chains.Get(p.Src.ChainID)
 			if err != nil {
 				return err
 			}
-			srcChan := path.Src.ChannelID
-			dstChain, err := config.Chains.Get(path.Dst.ChainID)
+			srcChan := p.Src.ChannelID
+			dstChain, err := config.Chains.Get(p.Dst.ChainID)
 			if err != nil {
 				return err
 			}
-			dstChan := path.Dst.ChannelID
+			dstChan := p.Dst.ChannelID
 
 			fmt.Printf("[%s:%s <-> %s:%s] Fetching transfers for %s - %s\n", srcChain.ChainID, srcChan,
 				dstChain.ChainID, dstChan, strtTime.Format("2006-01-02 15:04:05"), endTime.Format("2006-01-02 15:04:05"))
@@ -123,12 +130,12 @@ $ %s e t osmoterra --start YYYY-MM-DD HH:MM:SS`,
 			}
 
 			for denom, amount := range totalAmounts {
+				// make the output pretty
 				if len(denom) >= 6 {
 					fmt.Printf("[%s:%s <-> %s:%s] Denom: %s \t Amount: %d \n", srcChain.ChainID, srcChan, dstChain.ChainID, dstChan, denom, amount)
 				} else {
 					fmt.Printf("[%s:%s <-> %s:%s] Denom: %s \t\t Amount: %d \n", srcChain.ChainID, srcChan, dstChain.ChainID, dstChan, denom, amount)
 				}
-
 			}
 
 			return nil
@@ -155,7 +162,7 @@ $ %s etl qos hubjuno --start YYYY-MM-DD HH:MM:SS`,
 		)),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			const driverName = "postgres"
-			path, err := config.Paths.Get(args[0])
+			p, err := config.Paths.Get(args[0])
 			if err != nil {
 				return err
 			}
@@ -181,10 +188,10 @@ $ %s etl qos hubjuno --start YYYY-MM-DD HH:MM:SS`,
 				return err
 			}
 
-			srcChain := path.Src.ChainID
-			srcChan := path.Src.ChannelID
-			dstChain := path.Dst.ChainID
-			dstChan := path.Dst.ChannelID
+			srcChain := p.Src.ChainID
+			srcChan := p.Src.ChannelID
+			dstChain := p.Dst.ChainID
+			dstChan := p.Dst.ChannelID
 
 			fmt.Printf("[%s:%s <-> %s:%s] Calculating IBC QoS over %s - %s\n", srcChain, srcChan,
 				dstChain, dstChan, strtTime.Format("2006-01-02 15:04:05"), endTime.Format("2006-01-02 15:04:05"))
@@ -361,6 +368,8 @@ func queryBlocks(chain *relayer.Chain, blocks []int64, db *sql.DB) error {
 }
 
 func parseTxs(chain *relayer.Chain, block *coretypes.ResultBlock, h int64, db *sql.DB) {
+	coinGeckoData := buildCoinGeckoData()
+
 	for i, tx := range block.Block.Data.Txs {
 		sdkTx, err := chain.Encoding.TxConfig.TxDecoder()(tx)
 		if err != nil {
@@ -377,29 +386,54 @@ func parseTxs(chain *relayer.Chain, block *coretypes.ResultBlock, h int64, db *s
 
 		fee := sdkTx.(sdk.FeeTx)
 		var feeAmount, feeDenom string
+		var tokenValue float64
+		tokenValue = 0
+
 		if len(fee.GetFee()) == 0 {
 			feeAmount = "0"
 			feeDenom = ""
+			tokenValue = 0
 		} else {
 			feeAmount = fee.GetFee()[0].Amount.String()
 			feeDenom = fee.GetFee()[0].Denom
+			if val, exists := coinGeckoData.Networks[feeDenom]; exists {
+				tokenValue, err = val.getPrice(block.Block.Time)
+				if err != nil {
+					fmt.Printf("Failed to get price of %s from Coin Gecko. Err: %s\n", val.Token, err.Error())
+					os.Exit(1)
+				}
+			}
 		}
 
 		if txRes.TxResult.Code > 0 {
-			json := fmt.Sprintf("{\"error\":\"%s\"}", txRes.TxResult.Log)
-			err = insertTxRow(tx.Hash(), chain.ChainID, json, feeAmount, feeDenom, h, txRes.TxResult.GasUsed,
-				txRes.TxResult.GasWanted, block.Block.Time, db, txRes.TxResult.Code)
+			log := fmt.Sprintf("{\"error\":\"%s\"}", txRes.TxResult.Log)
+			err = insertTxRow(tx.Hash(), chain.ChainID, log, feeAmount, feeDenom, h, txRes.TxResult.GasUsed,
+				txRes.TxResult.GasWanted, block.Block.Time, db, txRes.TxResult.Code, tokenValue)
 
 			logTxInsertion(err, i, len(sdkTx.GetMsgs()), len(block.Block.Data.Txs), block.Block.Height)
+
+			if err != nil {
+				err = updateTxRow(tx.Hash(), db, tokenValue)
+				if err != nil {
+					fmt.Printf("Failed to update tx. Index: %d Height: %d Err: %s \n", i, block.Block.Height, err.Error())
+				}
+			}
 		} else {
 			err = insertTxRow(tx.Hash(), chain.ChainID, txRes.TxResult.Log, feeAmount, feeDenom, h, txRes.TxResult.GasUsed,
-				txRes.TxResult.GasWanted, block.Block.Time, db, txRes.TxResult.Code)
+				txRes.TxResult.GasWanted, block.Block.Time, db, txRes.TxResult.Code, tokenValue)
 
 			logTxInsertion(err, i, len(sdkTx.GetMsgs()), len(block.Block.Data.Txs), block.Block.Height)
+
+			if err != nil {
+				err = updateTxRow(tx.Hash(), db, tokenValue)
+				if err != nil {
+					fmt.Printf("Failed to update tx. Index: %d Height: %d Err: %s \n", i, block.Block.Height, err.Error())
+				}
+			}
 		}
 
 		for msgIndex, msg := range sdkTx.GetMsgs() {
-			handleMsg(chain, msg, msgIndex, block.Block.Height, tx.Hash(), db)
+			handleMsg(chain, msg, msgIndex, block.Block.Height, tx.Hash(), db, coinGeckoData, block.Block.Time)
 		}
 	}
 }
@@ -427,15 +461,51 @@ func makeBlockArray(src *relayer.Chain, srcStart int64) ([]int64, error) {
 	return srcBlocks, nil
 }
 
-func handleMsg(c *relayer.Chain, msg sdk.Msg, msgIndex int, height int64, hash []byte, db *sql.DB) {
+func handleMsg(c *relayer.Chain, msg sdk.Msg, msgIndex int, height int64, hash []byte, db *sql.DB, coinGeckoData *CoinGeckoData, time time.Time) {
 	switch m := msg.(type) {
 	case *transfertypes.MsgTransfer:
 		done := c.UseSDKContext()
 
-		err := insertMsgTransferRow(hash, m.Token.Denom, m.SourceChannel, m.Route(), m.Token.Amount.String(), m.Sender,
-			m.GetSigners()[0].String(), m.Receiver, m.SourcePort, msgIndex, db)
+		var (
+			tokenValue float64
+			err        error
+		)
+
+		tokenValue = 0
+		denom := m.Token.Denom
+		if strings.Contains(denom, "ibc/") {
+			denomRes, err := c.QueryDenomTrace(strings.Trim(denom, "ibc/"))
+			if err != nil {
+				fmt.Printf("Error querying denom trace %s. Err: %s \n", denom, err.Error())
+			} else {
+				denom = denomRes.DenomTrace.BaseDenom
+				if val, exists := coinGeckoData.Networks[denom]; exists {
+					tokenValue, err = val.getPrice(time)
+					if err != nil {
+						fmt.Printf("Failed to get price of %s from Coin Gecko. Err: %s\n", val.Token, err.Error())
+						os.Exit(1)
+					}
+				}
+			}
+		} else {
+			if val, exists := coinGeckoData.Networks[denom]; exists {
+				tokenValue, err = val.getPrice(time)
+				if err != nil {
+					fmt.Printf("Failed to get price of %s from Coin Gecko. Err: %s\n", val.Token, err.Error())
+					os.Exit(1)
+				}
+			}
+		}
+
+		err = insertMsgTransferRow(hash, denom, m.SourceChannel, m.Route(), m.Token.Amount.String(), m.Sender,
+			m.GetSigners()[0].String(), m.Receiver, m.SourcePort, msgIndex, db, tokenValue)
+
 		if err != nil {
 			fmt.Printf("Failed to insert MsgTransfer. Index: %d Height: %d Err: %s \n", msgIndex, height, err.Error())
+			err = updateTransferRow(hash, denom, db, tokenValue, msgIndex)
+			if err != nil {
+				fmt.Printf("Failed to update MsgTransfer. Index: %d Height: %d Err: %s \n", msgIndex, height, err.Error())
+			}
 		}
 
 		done()
@@ -483,6 +553,7 @@ func createTables(db *sql.DB) error {
 		"code INT NOT NULL, " +
 		"fee_amount TEXT, " +
 		"fee_denom TEXT, " +
+		"token_value NUMERIC NOT NULL," +
 		"gas_used BIGINT NOT NULL," +
 		"gas_wanted BIGINT NOT NULL" +
 		")"
@@ -495,6 +566,7 @@ func createTables(db *sql.DB) error {
 		"receiver TEXT NOT NULL," +
 		"amount TEXT NOT NULL," +
 		"denom TEXT NOT NULL," +
+		"token_value NUMERIC NOT NULL," +
 		"src_chan TEXT NOT NULL," +
 		"src_port TEXT NOT NULL," +
 		"route TEXT NOT NULL," +
@@ -547,15 +619,16 @@ func createTables(db *sql.DB) error {
 	return nil
 }
 
-func insertTxRow(hash []byte, chainid, log, feeAmount, feeDenom string, height, gasUsed, gasWanted int64, timestamp time.Time, db *sql.DB, code uint32) error {
-	query := "INSERT INTO txs(hash, block_time, chainid, block_height, raw_log, code, gas_used, gas_wanted, fee_amount, fee_denom) " +
-		"VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)"
+func insertTxRow(hash []byte, chainid, log, feeAmount, feeDenom string, height, gasUsed, gasWanted int64, timestamp time.Time, db *sql.DB, code uint32, tokenValue float64) error {
+	query := "INSERT INTO txs(hash, block_time, chainid, block_height, raw_log, code, gas_used, gas_wanted, fee_amount, fee_denom, token_value) " +
+		"VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)"
 	stmt, err := db.Prepare(query)
 	if err != nil {
 		return fmt.Errorf("Fail to create query for new tx. Err: %s \n", err.Error())
 	}
+	defer stmt.Close()
 
-	_, err = stmt.Exec(hash, timestamp, chainid, height, log, code, gasUsed, gasWanted, feeAmount, feeDenom)
+	_, err = stmt.Exec(hash, timestamp, chainid, height, log, code, gasUsed, gasWanted, feeAmount, feeDenom, tokenValue)
 	if err != nil {
 		return fmt.Errorf("Fail to execute query for new tx. Err: %s \n", err.Error())
 	}
@@ -563,17 +636,18 @@ func insertTxRow(hash []byte, chainid, log, feeAmount, feeDenom string, height, 
 	return nil
 }
 
-func insertMsgTransferRow(hash []byte, denom, srcChan, route, amount, sender, signer, receiver, port string, msgIndex int, db *sql.DB) error {
-	query := "INSERT INTO msg_transfer(tx_hash, msg_index, amount, denom, src_chan, route, signer, sender, receiver, src_port) " +
-		"VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)"
+func insertMsgTransferRow(hash []byte, denom, srcChan, route, amount, sender, signer, receiver, port string, msgIndex int, db *sql.DB, tokenValue float64) error {
+	query := "INSERT INTO msg_transfer(tx_hash, msg_index, amount, denom, src_chan, route, signer, sender, receiver, src_port, token_value) " +
+		"VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)"
 	stmt, err := db.Prepare(query)
 	if err != nil {
-		return fmt.Errorf("Fail to create query for MsgTransfer. Err: %s \n", err.Error())
+		return fmt.Errorf("Fail to create query for MsgTransfer. Err: %s ", err.Error())
 	}
+	defer stmt.Close()
 
-	_, err = stmt.Exec(hash, msgIndex, amount, denom, srcChan, route, signer, sender, receiver, port)
+	_, err = stmt.Exec(hash, msgIndex, amount, denom, srcChan, route, signer, sender, receiver, port, tokenValue)
 	if err != nil {
-		return fmt.Errorf("Fail to execute query for MsgTransfer. Err: %s \n", err.Error())
+		return fmt.Errorf("Fail to execute query for MsgTransfer. Err: %s ", err.Error())
 	}
 
 	return nil
@@ -586,6 +660,7 @@ func insertMsgTimeoutRow(hash []byte, signer, srcChan, dstChan, srcPort, dstPort
 	if err != nil {
 		return fmt.Errorf("Fail to create query for MsgTimeout. Err: %s \n", err.Error())
 	}
+	defer stmt.Close()
 
 	_, err = stmt.Exec(hash, msgIndex, signer, srcChan, dstChan, srcPort, dstPort)
 	if err != nil {
@@ -602,6 +677,7 @@ func insertMsgRecvPacketRow(hash []byte, signer, srcChan, dstChan, srcPort, dstP
 	if err != nil {
 		return fmt.Errorf("Fail to create query for MsgRecvPacket. Err: %s \n", err.Error())
 	}
+	defer stmt.Close()
 
 	_, err = stmt.Exec(hash, msgIndex, signer, srcChan, dstChan, srcPort, dstPort)
 	if err != nil {
@@ -618,12 +694,41 @@ func insertMsgAckRow(hash []byte, signer, srcChan, dstChan, srcPort, dstPort str
 	if err != nil {
 		return fmt.Errorf("Fail to create query for MsgAck. Err: %s \n", err.Error())
 	}
+	defer stmt.Close()
 
 	_, err = stmt.Exec(hash, msgIndex, signer, srcChan, dstChan, srcPort, dstPort)
 	if err != nil {
 		return fmt.Errorf("Fail to execute query for MsgAck. Err: %s \n", err.Error())
 	}
 
+	return nil
+}
+
+func updateTxRow(hash []byte, db *sql.DB, tokenValue float64) error {
+	query := "UPDATE txs SET token_value = $1 WHERE hash = $2"
+	r, err := db.Exec(query, tokenValue, hash)
+	if err != nil {
+		return fmt.Errorf("Fail to execute query for updating tx. Err: %s \n", err.Error())
+	}
+	rows, err := r.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("Failure on checking rows affected. Err: %s \n", err.Error())
+	}
+	fmt.Printf("Rows affected by updating txs = %d \n", rows)
+	return nil
+}
+
+func updateTransferRow(hash []byte, denom string, db *sql.DB, tokenValue float64, msgIndex int) error {
+	query := "UPDATE msg_transfer SET token_value = $1, denom = $2 WHERE tx_hash = $3 AND msg_index = $4"
+	r, err := db.Exec(query, tokenValue, denom, hash, msgIndex)
+	if err != nil {
+		return fmt.Errorf("Fail to execute query for updating msg_transfer. Err: %s ", err.Error())
+	}
+	rows, err := r.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("Failure on checking rows affected. Err: %s ", err.Error())
+	}
+	fmt.Printf("Rows affected by updating msg_transfer = %d \n", rows)
 	return nil
 }
 
@@ -723,12 +828,11 @@ func getTransferedAmounts(chain *relayer.Chain, path string, start, end time.Tim
 		if strings.Contains(denom, "ibc/") {
 			denomRes, err := chain.QueryDenomTrace(strings.Trim(denom, "ibc/"))
 			if err != nil {
-				fmt.Printf("ERROR QUERYING DENOM %s. Err: %s \n", denom, err.Error())
+				fmt.Printf("Error querying denom trace %s. Err: %s \n", denom, err.Error())
 			} else {
 				denom = denomRes.DenomTrace.BaseDenom
 			}
 		}
-
 		amounts[denom] = amount
 	}
 
@@ -746,7 +850,18 @@ func logTxInsertion(err error, msgIndex, msgs, txs int, height int64) {
 	}
 }
 
-/*
+type NetworkDetails struct {
+	ChainID     string `yaml:"chain-id" json:"chain-id" mapstructure:"chain-id"`
+	Prefix      string `yaml:"prefix" json:"prefix" mapstructure:"prefix"`
+	Token       string `yaml:"token" json:"token" mapstructure:"token"`
+	CoinGeckoID string `yaml:"coin-gecko-id" json:"coin-gecko-id" mapstructure:"coin-gecko-id"`
+
+	context client.Context
+}
+
+type CoinGeckoData struct {
+	Networks map[string]*NetworkDetails `yaml:"networks"`
+}
 type ErrRateLimitExceeded error
 
 type priceHistory struct {
@@ -764,8 +879,31 @@ type priceHistory struct {
 	} `json:"market_data"`
 }
 
-func GetPrice(date time.Time, ) (float64, error) {
-	url := fmt.Sprintf("https://api.coingecko.com/api/v3/coins/%s/history?date=%s&localization=false", cr.CoinGeckoID, fmt.Sprintf("%d-%d-%d", date.Day(), date.Month(), date.Year()))
+func buildCoinGeckoData() *CoinGeckoData {
+	const fileName = "coin-gecko.yaml"
+
+	// Parse coin-gecko.yaml & build NetworkDetails slice
+	networkDetails := &CoinGeckoData{Networks: make(map[string]*NetworkDetails)}
+	file, err := ioutil.ReadFile(path.Join(".", fileName))
+	if err != nil {
+		fmt.Println("Error reading file:", err)
+		os.Exit(1)
+	}
+
+	err = yaml.Unmarshal(file, networkDetails)
+	if err != nil {
+		fmt.Println("Error unmarshalling coin gecko token value file (coin-gecko.yaml):", err)
+		os.Exit(1)
+	}
+
+	for _, nd := range networkDetails.Networks {
+		networkDetails.Networks[nd.Token] = nd
+	}
+	return networkDetails
+}
+
+func (nd *NetworkDetails) getPrice(date time.Time) (float64, error) {
+	url := fmt.Sprintf("https://api.coingecko.com/api/v3/coins/%s/history?date=%s&localization=false", nd.CoinGeckoID, fmt.Sprintf("%d-%d-%d", date.Day(), date.Month(), date.Year()))
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return 0, err
@@ -773,12 +911,12 @@ func GetPrice(date time.Time, ) (float64, error) {
 	req.Header.Set("Accept", "application/json")
 
 	var resp *http.Response
-	retry.Do(func() error {
+	err = retry.Do(func() error {
 		resp, err = http.DefaultClient.Do(req)
 		switch {
 		case resp.StatusCode == 429:
 			return ErrRateLimitExceeded(fmt.Errorf("429"))
-		case (resp.StatusCode < 200 || resp.StatusCode > 299):
+		case resp.StatusCode < 200 || resp.StatusCode > 299:
 			return fmt.Errorf("non 2xx or 429 status code %d", resp.StatusCode)
 		case err != nil:
 			return err
@@ -789,15 +927,20 @@ func GetPrice(date time.Time, ) (float64, error) {
 		_, ok := err.(ErrRateLimitExceeded)
 		return ok
 	}), retry.Delay(time.Second*60))
+	if err != nil {
+		return 0, err
+	}
 	defer resp.Body.Close()
+
 	bz, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		return 0, err
 	}
+
 	data := priceHistory{}
 	if err := json.Unmarshal(bz, &data); err != nil {
 		return 0, err
 	}
+
 	return data.MarketData.CurrentPrice["usd"], nil
 }
-*/
