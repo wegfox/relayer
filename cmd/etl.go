@@ -915,7 +915,7 @@ func buildCoinGeckoData() *CoinGeckoData {
 
 	// Parse coin-gecko.yaml & build NetworkDetails slice
 	networkDetails := &CoinGeckoData{Networks: make(map[string]*NetworkDetails)}
-	file, err := ioutil.ReadFile(path.Join(".", fileName))
+	file, err := ioutil.ReadFile(path.Join(".", "go", "src", "github.com", "strangelove-ventures", "relayer", fileName))
 	if err != nil {
 		fmt.Println("Error reading file:", err)
 		os.Exit(1)
@@ -944,13 +944,14 @@ func (nd *NetworkDetails) getPrice(date time.Time) (float64, error) {
 	var resp *http.Response
 	err = retry.Do(func() error {
 		resp, err = http.DefaultClient.Do(req)
+		if err != nil {
+			return err
+		}
 		switch {
 		case resp.StatusCode == 429:
 			return ErrRateLimitExceeded(fmt.Errorf("429"))
 		case resp.StatusCode < 200 || resp.StatusCode > 299:
 			return fmt.Errorf("non 2xx or 429 status code %d", resp.StatusCode)
-		case err != nil:
-			return err
 		default:
 			return nil
 		}
