@@ -915,7 +915,7 @@ func buildCoinGeckoData() *CoinGeckoData {
 
 	// Parse coin-gecko.yaml & build NetworkDetails slice
 	networkDetails := &CoinGeckoData{Networks: make(map[string]*NetworkDetails)}
-	file, err := ioutil.ReadFile(path.Join(".", "go", "src", "github.com", "strangelove-ventures", "relayer", fileName))
+	file, err := ioutil.ReadFile(path.Join(".", fileName))
 	if err != nil {
 		fmt.Println("Error reading file:", err)
 		os.Exit(1)
