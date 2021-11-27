@@ -956,6 +956,7 @@ func (nd *NetworkDetails) getPrice(date time.Time) (float64, error) {
 		}
 	}, retry.RetryIf(func(err error) bool {
 		_, ok := err.(ErrRateLimitExceeded)
+		fmt.Println("Hit rate limit for Coin Gecko API, must wait 60 seconds...")
 		return ok
 	}), retry.Delay(time.Second*60))
 	if err != nil {
