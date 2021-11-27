@@ -323,7 +323,10 @@ func queryBlocks(chain *relayer.Chain, blocks []int64, db *sql.DB) error {
 	failedBlocks := make([]int64, 0)
 	sem := make(chan struct{}, 100)
 	coinGeckoData := buildCoinGeckoData()
-	cache := make(map[string]*CacheEntry, 3)
+	cache := &Cache{
+		mutex: sync.Mutex{},
+		cache: make(map[string]*CacheEntry, 3),
+	}
 
 	for _, h := range blocks {
 		h := h
@@ -355,6 +358,7 @@ func queryBlocks(chain *relayer.Chain, blocks []int64, db *sql.DB) error {
 			if block != nil {
 				parseTxs(chain, block, h, db, coinGeckoData, cache)
 			}
+			fmt.Printf("Semaphore size is %d \n", len(sem))
 
 			<-sem
 			return nil
@@ -369,7 +373,7 @@ func queryBlocks(chain *relayer.Chain, blocks []int64, db *sql.DB) error {
 	return nil
 }
 
-func parseTxs(chain *relayer.Chain, block *coretypes.ResultBlock, h int64, db *sql.DB, coinGeckoData *CoinGeckoData, cache map[string]*CacheEntry) {
+func parseTxs(chain *relayer.Chain, block *coretypes.ResultBlock, h int64, db *sql.DB, coinGeckoData *CoinGeckoData, cache *Cache) {
 	for i, tx := range block.Block.Data.Txs {
 		sdkTx, err := chain.Encoding.TxConfig.TxDecoder()(tx)
 		if err != nil {
@@ -385,21 +389,21 @@ func parseTxs(chain *relayer.Chain, block *coretypes.ResultBlock, h int64, db *s
 		}
 
 		fee := sdkTx.(sdk.FeeTx)
-		//var feeAmount string
+		var feeAmount string
 		var feeDenom string
 		tokenValue := float64(0)
 
 		if len(fee.GetFee()) == 0 {
-			//feeAmount = "0"
+			feeAmount = "0"
 			feeDenom = ""
 			tokenValue = 0
 		} else {
-			//feeAmount = fee.GetFee()[0].Amount.String()
+			feeAmount = fee.GetFee()[0].Amount.String()
 			feeDenom = fee.GetFee()[0].Denom
 			if val, exists := coinGeckoData.Networks[feeDenom]; exists {
 				// attempt to use cached token value if it exists, and it is from the same date.
 				// if the data has not been cached or newer data is needed query from CoinGecko API
-				if cacheEntry, exists := cache[feeDenom]; exists {
+				if cacheEntry, exists := cache.cache[feeDenom]; exists {
 					if DateEqual(block.Block.Time, cacheEntry.time) {
 						tokenValue = cacheEntry.value
 					} else {
@@ -412,41 +416,33 @@ func parseTxs(chain *relayer.Chain, block *coretypes.ResultBlock, h int64, db *s
 		}
 
 		if txRes.TxResult.Code > 0 {
-			//log := fmt.Sprintf("{\"error\":\"%s\"}", txRes.TxResult.Log)
-			err = updateTxRow(tx.Hash(), db, tokenValue)
+			log := fmt.Sprintf("{\"error\":\"%s\"}", txRes.TxResult.Log)
+			err = insertTxRow(tx.Hash(), chain.ChainID, log, feeAmount, feeDenom, h, txRes.TxResult.GasUsed,
+				txRes.TxResult.GasWanted, block.Block.Time, db, txRes.TxResult.Code, tokenValue)
+
+			logTxInsertion(err, i, len(sdkTx.GetMsgs()), len(block.Block.Data.Txs), block.Block.Height)
+
 			if err != nil {
-				fmt.Printf("Failed to update tx. Index: %d Height: %d Err: %s \n", i, block.Block.Height, err.Error())
-			} else {
-				fmt.Printf("[Height - %d] Successfully updated tx. \n", block.Block.Height)
+				err = updateTxRow(tx.Hash(), db, tokenValue)
+				if err != nil {
+					fmt.Printf("Failed to update tx. Index: %d Height: %d Err: %s \n", i, block.Block.Height, err.Error())
+				} else {
+					fmt.Printf("[Height - %d] Successfully updated tx. \n", block.Block.Height)
+				}
 			}
-			//err = insertTxRow(tx.Hash(), chain.ChainID, log, feeAmount, feeDenom, h, txRes.TxResult.GasUsed,
-			//	txRes.TxResult.GasWanted, block.Block.Time, db, txRes.TxResult.Code, tokenValue)
-			//
-			//logTxInsertion(err, i, len(sdkTx.GetMsgs()), len(block.Block.Data.Txs), block.Block.Height)
-			//
-			//if err != nil {
-			//	err = updateTxRow(tx.Hash(), db, tokenValue)
-			//	if err != nil {
-			//		fmt.Printf("Failed to update tx. Index: %d Height: %d Err: %s \n", i, block.Block.Height, err.Error())
-			//	}
-			//}
 		} else {
-			//err = insertTxRow(tx.Hash(), chain.ChainID, txRes.TxResult.Log, feeAmount, feeDenom, h, txRes.TxResult.GasUsed,
-			//	txRes.TxResult.GasWanted, block.Block.Time, db, txRes.TxResult.Code, tokenValue)
-			//
-			//logTxInsertion(err, i, len(sdkTx.GetMsgs()), len(block.Block.Data.Txs), block.Block.Height)
-			//
-			//if err != nil {
-			//	err = updateTxRow(tx.Hash(), db, tokenValue)
-			//	if err != nil {
-			//		fmt.Printf("Failed to update tx. Index: %d Height: %d Err: %s \n", i, block.Block.Height, err.Error())
-			//	}
-			//}
-			err = updateTxRow(tx.Hash(), db, tokenValue)
+			err = insertTxRow(tx.Hash(), chain.ChainID, txRes.TxResult.Log, feeAmount, feeDenom, h, txRes.TxResult.GasUsed,
+				txRes.TxResult.GasWanted, block.Block.Time, db, txRes.TxResult.Code, tokenValue)
+
+			logTxInsertion(err, i, len(sdkTx.GetMsgs()), len(block.Block.Data.Txs), block.Block.Height)
+
 			if err != nil {
-				fmt.Printf("Failed to update tx. Index: %d Height: %d Err: %s \n", i, block.Block.Height, err.Error())
-			} else {
-				fmt.Printf("[Height - %d] Successfully updated tx. \n", block.Block.Height)
+				err = updateTxRow(tx.Hash(), db, tokenValue)
+				if err != nil {
+					fmt.Printf("Failed to update tx. Index: %d Height: %d Err: %s \n", i, block.Block.Height, err.Error())
+				} else {
+					fmt.Printf("[Height - %d] Successfully updated tx. \n", block.Block.Height)
+				}
 			}
 		}
 
@@ -479,7 +475,7 @@ func makeBlockArray(src *relayer.Chain, srcStart int64) ([]int64, error) {
 	return srcBlocks, nil
 }
 
-func handleMsg(c *relayer.Chain, msg sdk.Msg, msgIndex int, height int64, hash []byte, db *sql.DB, coinGeckoData *CoinGeckoData, time time.Time, cache map[string]*CacheEntry) {
+func handleMsg(c *relayer.Chain, msg sdk.Msg, msgIndex int, height int64, hash []byte, db *sql.DB, coinGeckoData *CoinGeckoData, time time.Time, cache *Cache) {
 	switch m := msg.(type) {
 	case *transfertypes.MsgTransfer:
 		done := c.UseSDKContext()
@@ -500,7 +496,7 @@ func handleMsg(c *relayer.Chain, msg sdk.Msg, msgIndex int, height int64, hash [
 				if val, exists := coinGeckoData.Networks[denom]; exists {
 					// attempt to use cached token value if it exists, and it is from the same date.
 					// if the data has not been cached or newer data is needed query from CoinGecko API
-					if cacheEntry, exists := cache[denom]; exists {
+					if cacheEntry, exists := cache.cache[denom]; exists {
 						if DateEqual(cacheEntry.time, time) {
 							tokenValue = cacheEntry.value
 						} else {
@@ -515,7 +511,7 @@ func handleMsg(c *relayer.Chain, msg sdk.Msg, msgIndex int, height int64, hash [
 			if val, exists := coinGeckoData.Networks[denom]; exists {
 				// attempt to use cached token value if it exists, and it is from the same date.
 				// if the data has not been cached or newer data is needed query from CoinGecko API
-				if cacheEntry, exists := cache[denom]; exists {
+				if cacheEntry, exists := cache.cache[denom]; exists {
 					if DateEqual(cacheEntry.time, time) {
 						tokenValue = cacheEntry.value
 					} else {
@@ -527,21 +523,17 @@ func handleMsg(c *relayer.Chain, msg sdk.Msg, msgIndex int, height int64, hash [
 			}
 		}
 
-		//err = insertMsgTransferRow(hash, denom, m.SourceChannel, m.Route(), m.Token.Amount.String(), m.Sender,
-		//	m.GetSigners()[0].String(), m.Receiver, m.SourcePort, msgIndex, db, tokenValue)
-		//
-		//if err != nil {
-		//	fmt.Printf("Failed to insert MsgTransfer. Index: %d Height: %d Err: %s \n", msgIndex, height, err.Error())
-		//	err = updateTransferRow(hash, denom, db, tokenValue, msgIndex)
-		//	if err != nil {
-		//		fmt.Printf("Failed to update MsgTransfer. Index: %d Height: %d Err: %s \n", msgIndex, height, err.Error())
-		//	}
-		//}
-		err = updateTransferRow(hash, denom, db, tokenValue, msgIndex)
+		err = insertMsgTransferRow(hash, denom, m.SourceChannel, m.Route(), m.Token.Amount.String(), m.Sender,
+			m.GetSigners()[0].String(), m.Receiver, m.SourcePort, msgIndex, db, tokenValue)
+
 		if err != nil {
-			fmt.Printf("Failed to update MsgTransfer. Index: %d Height: %d Err: %s \n", msgIndex, height, err.Error())
-		} else {
-			fmt.Printf("[Height - %d] Successfully updated MsgTransfer. \n", height)
+			fmt.Printf("Failed to insert MsgTransfer. Index: %d Height: %d Err: %s \n", msgIndex, height, err.Error())
+			err = updateTransferRow(hash, denom, db, tokenValue, msgIndex)
+			if err != nil {
+				fmt.Printf("Failed to update MsgTransfer. Index: %d Height: %d Err: %s \n", msgIndex, height, err.Error())
+			} else {
+				fmt.Printf("[Height - %d] Successfully updated MsgTransfer. \n", height)
+			}
 		}
 
 		done()
@@ -889,6 +881,11 @@ type CoinGeckoData struct {
 	Networks map[string]*NetworkDetails `yaml:"networks"`
 }
 
+type Cache struct {
+	mutex sync.Mutex
+	cache map[string]*CacheEntry
+}
+
 type CacheEntry struct {
 	value float64
 	time  time.Time
@@ -900,18 +897,17 @@ func DateEqual(date1, date2 time.Time) bool {
 	return y1 == y2 && m1 == m2 && d1 == d2
 }
 
-func GetPriceAndUpdateCache(cache map[string]*CacheEntry, date time.Time, networkDetails *NetworkDetails) float64 {
-	var mutex sync.Mutex
+func GetPriceAndUpdateCache(cache *Cache, date time.Time, networkDetails *NetworkDetails) float64 {
 	tokenValue, err := networkDetails.getPrice(date)
 	if err != nil {
 		fmt.Printf("Failed to get price of %s from Coin Gecko. Err: %s\n", networkDetails.Token, err.Error())
 	}
-	mutex.Lock()
-	cache[networkDetails.Token] = &CacheEntry{
+	cache.mutex.Lock()
+	cache.cache[networkDetails.Token] = &CacheEntry{
 		value: tokenValue,
 		time:  date,
 	}
-	mutex.Unlock()
+	cache.mutex.Unlock()
 	return tokenValue
 }
 
