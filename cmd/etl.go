@@ -385,15 +385,16 @@ func parseTxs(chain *relayer.Chain, block *coretypes.ResultBlock, h int64, db *s
 		}
 
 		fee := sdkTx.(sdk.FeeTx)
-		var feeAmount, feeDenom string
+		//var feeAmount string
+		var feeDenom string
 		tokenValue := float64(0)
 
 		if len(fee.GetFee()) == 0 {
-			feeAmount = "0"
+			//feeAmount = "0"
 			feeDenom = ""
 			tokenValue = 0
 		} else {
-			feeAmount = fee.GetFee()[0].Amount.String()
+			//feeAmount = fee.GetFee()[0].Amount.String()
 			feeDenom = fee.GetFee()[0].Denom
 			if val, exists := coinGeckoData.Networks[feeDenom]; exists {
 				// attempt to use cached token value if it exists, and it is from the same date.
@@ -411,29 +412,41 @@ func parseTxs(chain *relayer.Chain, block *coretypes.ResultBlock, h int64, db *s
 		}
 
 		if txRes.TxResult.Code > 0 {
-			log := fmt.Sprintf("{\"error\":\"%s\"}", txRes.TxResult.Log)
-			err = insertTxRow(tx.Hash(), chain.ChainID, log, feeAmount, feeDenom, h, txRes.TxResult.GasUsed,
-				txRes.TxResult.GasWanted, block.Block.Time, db, txRes.TxResult.Code, tokenValue)
-
-			logTxInsertion(err, i, len(sdkTx.GetMsgs()), len(block.Block.Data.Txs), block.Block.Height)
-
+			//log := fmt.Sprintf("{\"error\":\"%s\"}", txRes.TxResult.Log)
+			err = updateTxRow(tx.Hash(), db, tokenValue)
 			if err != nil {
-				err = updateTxRow(tx.Hash(), db, tokenValue)
-				if err != nil {
-					fmt.Printf("Failed to update tx. Index: %d Height: %d Err: %s \n", i, block.Block.Height, err.Error())
-				}
+				fmt.Printf("Failed to update tx. Index: %d Height: %d Err: %s \n", i, block.Block.Height, err.Error())
+			} else {
+				fmt.Printf("[Height - %d] Successfully updated tx. \n", block.Block.Height)
 			}
+			//err = insertTxRow(tx.Hash(), chain.ChainID, log, feeAmount, feeDenom, h, txRes.TxResult.GasUsed,
+			//	txRes.TxResult.GasWanted, block.Block.Time, db, txRes.TxResult.Code, tokenValue)
+			//
+			//logTxInsertion(err, i, len(sdkTx.GetMsgs()), len(block.Block.Data.Txs), block.Block.Height)
+			//
+			//if err != nil {
+			//	err = updateTxRow(tx.Hash(), db, tokenValue)
+			//	if err != nil {
+			//		fmt.Printf("Failed to update tx. Index: %d Height: %d Err: %s \n", i, block.Block.Height, err.Error())
+			//	}
+			//}
 		} else {
-			err = insertTxRow(tx.Hash(), chain.ChainID, txRes.TxResult.Log, feeAmount, feeDenom, h, txRes.TxResult.GasUsed,
-				txRes.TxResult.GasWanted, block.Block.Time, db, txRes.TxResult.Code, tokenValue)
-
-			logTxInsertion(err, i, len(sdkTx.GetMsgs()), len(block.Block.Data.Txs), block.Block.Height)
-
+			//err = insertTxRow(tx.Hash(), chain.ChainID, txRes.TxResult.Log, feeAmount, feeDenom, h, txRes.TxResult.GasUsed,
+			//	txRes.TxResult.GasWanted, block.Block.Time, db, txRes.TxResult.Code, tokenValue)
+			//
+			//logTxInsertion(err, i, len(sdkTx.GetMsgs()), len(block.Block.Data.Txs), block.Block.Height)
+			//
+			//if err != nil {
+			//	err = updateTxRow(tx.Hash(), db, tokenValue)
+			//	if err != nil {
+			//		fmt.Printf("Failed to update tx. Index: %d Height: %d Err: %s \n", i, block.Block.Height, err.Error())
+			//	}
+			//}
+			err = updateTxRow(tx.Hash(), db, tokenValue)
 			if err != nil {
-				err = updateTxRow(tx.Hash(), db, tokenValue)
-				if err != nil {
-					fmt.Printf("Failed to update tx. Index: %d Height: %d Err: %s \n", i, block.Block.Height, err.Error())
-				}
+				fmt.Printf("Failed to update tx. Index: %d Height: %d Err: %s \n", i, block.Block.Height, err.Error())
+			} else {
+				fmt.Printf("[Height - %d] Successfully updated tx. \n", block.Block.Height)
 			}
 		}
 
@@ -514,15 +527,21 @@ func handleMsg(c *relayer.Chain, msg sdk.Msg, msgIndex int, height int64, hash [
 			}
 		}
 
-		err = insertMsgTransferRow(hash, denom, m.SourceChannel, m.Route(), m.Token.Amount.String(), m.Sender,
-			m.GetSigners()[0].String(), m.Receiver, m.SourcePort, msgIndex, db, tokenValue)
-
+		//err = insertMsgTransferRow(hash, denom, m.SourceChannel, m.Route(), m.Token.Amount.String(), m.Sender,
+		//	m.GetSigners()[0].String(), m.Receiver, m.SourcePort, msgIndex, db, tokenValue)
+		//
+		//if err != nil {
+		//	fmt.Printf("Failed to insert MsgTransfer. Index: %d Height: %d Err: %s \n", msgIndex, height, err.Error())
+		//	err = updateTransferRow(hash, denom, db, tokenValue, msgIndex)
+		//	if err != nil {
+		//		fmt.Printf("Failed to update MsgTransfer. Index: %d Height: %d Err: %s \n", msgIndex, height, err.Error())
+		//	}
+		//}
+		err = updateTransferRow(hash, denom, db, tokenValue, msgIndex)
 		if err != nil {
-			fmt.Printf("Failed to insert MsgTransfer. Index: %d Height: %d Err: %s \n", msgIndex, height, err.Error())
-			err = updateTransferRow(hash, denom, db, tokenValue, msgIndex)
-			if err != nil {
-				fmt.Printf("Failed to update MsgTransfer. Index: %d Height: %d Err: %s \n", msgIndex, height, err.Error())
-			}
+			fmt.Printf("Failed to update MsgTransfer. Index: %d Height: %d Err: %s \n", msgIndex, height, err.Error())
+		} else {
+			fmt.Printf("[Height - %d] Successfully updated MsgTransfer. \n", height)
 		}
 
 		done()
