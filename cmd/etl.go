@@ -901,14 +901,17 @@ func DateEqual(date1, date2 time.Time) bool {
 }
 
 func GetPriceAndUpdateCache(cache map[string]*CacheEntry, date time.Time, networkDetails *NetworkDetails) float64 {
+	var mutex sync.Mutex
 	tokenValue, err := networkDetails.getPrice(date)
 	if err != nil {
 		fmt.Printf("Failed to get price of %s from Coin Gecko. Err: %s\n", networkDetails.Token, err.Error())
 	}
+	mutex.Lock()
 	cache[networkDetails.Token] = &CacheEntry{
 		value: tokenValue,
 		time:  date,
 	}
+	mutex.Unlock()
 	return tokenValue
 }
 
