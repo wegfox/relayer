@@ -358,7 +358,6 @@ func queryBlocks(chain *relayer.Chain, blocks []int64, db *sql.DB) error {
 			if block != nil {
 				parseTxs(chain, block, h, db, coinGeckoData, cache)
 			}
-			fmt.Printf("Semaphore size is %d \n", len(sem))
 
 			<-sem
 			return nil
@@ -389,8 +388,7 @@ func parseTxs(chain *relayer.Chain, block *coretypes.ResultBlock, h int64, db *s
 		}
 
 		fee := sdkTx.(sdk.FeeTx)
-		var feeAmount string
-		var feeDenom string
+		var feeAmount, feeDenom string
 		tokenValue := float64(0)
 
 		if len(fee.GetFee()) == 0 {
