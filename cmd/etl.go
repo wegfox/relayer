@@ -324,8 +324,7 @@ func queryBlocks(chain *relayer.Chain, blocks []int64, db *sql.DB) error {
 	sem := make(chan struct{}, 100)
 	coinGeckoData := buildCoinGeckoData()
 	cache := &Cache{
-		mutex: sync.Mutex{},
-		cache: make(map[string]*CacheEntry, 3),
+		cache: make(map[string][]*CacheEntry),
 	}
 
 	for _, h := range blocks {
@@ -398,19 +397,7 @@ func parseTxs(chain *relayer.Chain, block *coretypes.ResultBlock, h int64, db *s
 		} else {
 			feeAmount = fee.GetFee()[0].Amount.String()
 			feeDenom = fee.GetFee()[0].Denom
-			if val, exists := coinGeckoData.Networks[feeDenom]; exists {
-				// attempt to use cached token value if it exists, and it is from the same date.
-				// if the data has not been cached or newer data is needed query from CoinGecko API
-				if cacheEntry, exists := cache.cache[feeDenom]; exists {
-					if DateEqual(block.Block.Time, cacheEntry.time) {
-						tokenValue = cacheEntry.value
-					} else {
-						tokenValue = GetPriceAndUpdateCache(cache, block.Block.Time, val)
-					}
-				} else {
-					tokenValue = GetPriceAndUpdateCache(cache, block.Block.Time, val)
-				}
-			}
+			tokenValue = GetTokenValue(coinGeckoData, feeDenom, cache, block.Block.Time)
 		}
 
 		if txRes.TxResult.Code > 0 {
@@ -491,34 +478,10 @@ func handleMsg(c *relayer.Chain, msg sdk.Msg, msgIndex int, height int64, hash [
 				fmt.Printf("Error querying denom trace %s. Err: %s \n", denom, err.Error())
 			} else {
 				denom = denomRes.DenomTrace.BaseDenom
-				if val, exists := coinGeckoData.Networks[denom]; exists {
-					// attempt to use cached token value if it exists, and it is from the same date.
-					// if the data has not been cached or newer data is needed query from CoinGecko API
-					if cacheEntry, exists := cache.cache[denom]; exists {
-						if DateEqual(cacheEntry.time, time) {
-							tokenValue = cacheEntry.value
-						} else {
-							tokenValue = GetPriceAndUpdateCache(cache, time, val)
-						}
-					} else {
-						tokenValue = GetPriceAndUpdateCache(cache, time, val)
-					}
-				}
+				tokenValue = GetTokenValue(coinGeckoData, denom, cache, time)
 			}
 		} else {
-			if val, exists := coinGeckoData.Networks[denom]; exists {
-				// attempt to use cached token value if it exists, and it is from the same date.
-				// if the data has not been cached or newer data is needed query from CoinGecko API
-				if cacheEntry, exists := cache.cache[denom]; exists {
-					if DateEqual(cacheEntry.time, time) {
-						tokenValue = cacheEntry.value
-					} else {
-						tokenValue = GetPriceAndUpdateCache(cache, time, val)
-					}
-				} else {
-					tokenValue = GetPriceAndUpdateCache(cache, time, val)
-				}
-			}
+			tokenValue = GetTokenValue(coinGeckoData, denom, cache, time)
 		}
 
 		err = insertMsgTransferRow(hash, denom, m.SourceChannel, m.Route(), m.Token.Amount.String(), m.Sender,
@@ -880,13 +843,64 @@ type CoinGeckoData struct {
 }
 
 type Cache struct {
-	mutex sync.Mutex
-	cache map[string]*CacheEntry
+	sync.Mutex
+	cache map[string][]*CacheEntry
 }
 
 type CacheEntry struct {
 	value float64
 	time  time.Time
+}
+
+func (c *Cache) AdjustCache(token string, tokenValue float64, date time.Time) {
+	cacheEntries := c.cache[token]
+	for i, _ := range cacheEntries {
+		if i == len(cacheEntries)-1 {
+			c.Lock()
+			cacheEntries[i] = &CacheEntry{
+				value: tokenValue,
+				time:  date,
+			}
+			c.Unlock()
+		} else {
+			c.Lock()
+			cacheEntries[i] = cacheEntries[i+1]
+			c.Unlock()
+		}
+	}
+}
+
+func (c *Cache) Add(token string, tokenValue float64, date time.Time) {
+	cacheEntries := c.cache[token]
+	for _, cacheEntry := range cacheEntries {
+		if cacheEntry == nil {
+			c.Lock()
+			cacheEntry = &CacheEntry{
+				value: tokenValue,
+				time:  date,
+			}
+			c.Unlock()
+		}
+	}
+}
+
+func (c *Cache) GetTokenValue(cacheEntries []*CacheEntry, date time.Time) (float64, bool) {
+	var tokenValue float64
+	var updateCache bool
+	for _, cacheEntry := range cacheEntries {
+		if cacheEntry != nil {
+			if DateEqual(date, cacheEntry.time) {
+				tokenValue = cacheEntry.value
+				updateCache = false
+				break
+			} else {
+				updateCache = true
+			}
+		} else {
+			updateCache = true
+		}
+	}
+	return tokenValue, updateCache
 }
 
 func DateEqual(date1, date2 time.Time) bool {
@@ -896,16 +910,49 @@ func DateEqual(date1, date2 time.Time) bool {
 }
 
 func GetPriceAndUpdateCache(cache *Cache, date time.Time, networkDetails *NetworkDetails) float64 {
-	tokenValue, err := networkDetails.getPrice(date)
+	cache.Lock()
+	var err error
+	tokenValue, inCache := cache.GetTokenValue(cache.cache[networkDetails.Token], date)
+	if !inCache {
+		tokenValue, err = networkDetails.getPrice(date)
+	}
+	cache.Unlock()
 	if err != nil {
 		fmt.Printf("Failed to get price of %s from Coin Gecko. Err: %s\n", networkDetails.Token, err.Error())
 	}
-	cache.mutex.Lock()
-	cache.cache[networkDetails.Token] = &CacheEntry{
-		value: tokenValue,
-		time:  date,
+
+	// adjust the slice of cache entries so that we keep the last ten queries from the Coin Gecko API
+	cacheEntries := cache.cache[networkDetails.Token]
+	if len(cacheEntries) == 10 {
+		cache.AdjustCache(networkDetails.Token, tokenValue, date)
+	} else {
+		cache.Add(networkDetails.Token, tokenValue, date)
 	}
-	cache.mutex.Unlock()
+
+	return tokenValue
+}
+
+func GetTokenValue(coinGeckoData *CoinGeckoData, feeDenom string, cache *Cache, date time.Time) float64 {
+	var tokenValue float64
+	if val, exists := coinGeckoData.Networks[feeDenom]; exists {
+		// attempt to use cached token value if it exists, and it is from the same date.
+		// if the data has not been cached or newer data is needed query from CoinGecko API
+		var inCache bool
+		if cacheEntries, exists := cache.cache[feeDenom]; exists {
+			tokenValue, inCache = cache.GetTokenValue(cacheEntries, date)
+
+			if !inCache {
+				tokenValue = GetPriceAndUpdateCache(cache, date, val)
+			}
+		} else {
+			cache.Lock()
+			if _, ok := cache.cache[feeDenom]; !ok {
+				cache.cache[feeDenom] = make([]*CacheEntry, 10)
+			}
+			cache.Unlock()
+			tokenValue = GetPriceAndUpdateCache(cache, date, val)
+		}
+	}
 	return tokenValue
 }
 
