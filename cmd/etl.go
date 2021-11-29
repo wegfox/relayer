@@ -30,7 +30,6 @@ import (
 	"time"
 
 	"github.com/avast/retry-go"
-	"github.com/cosmos/cosmos-sdk/client"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	transfertypes "github.com/cosmos/ibc-go/v2/modules/apps/transfer/types"
 	channeltypes "github.com/cosmos/ibc-go/v2/modules/core/04-channel/types"
@@ -834,8 +833,6 @@ type NetworkDetails struct {
 	Prefix      string `yaml:"prefix" json:"prefix" mapstructure:"prefix"`
 	Token       string `yaml:"token" json:"token" mapstructure:"token"`
 	CoinGeckoID string `yaml:"coin-gecko-id" json:"coin-gecko-id" mapstructure:"coin-gecko-id"`
-
-	context client.Context
 }
 
 type CoinGeckoData struct {
@@ -880,27 +877,30 @@ func (c *Cache) Add(token string, tokenValue float64, date time.Time) {
 				time:  date,
 			}
 			c.Unlock()
+			break
 		}
 	}
 }
 
 func (c *Cache) GetTokenValue(cacheEntries []*CacheEntry, date time.Time) (float64, bool) {
-	var tokenValue float64
-	var updateCache bool
+	var (
+		tokenValue float64
+		inCache    bool
+	)
 	for _, cacheEntry := range cacheEntries {
 		if cacheEntry != nil {
 			if DateEqual(date, cacheEntry.time) {
 				tokenValue = cacheEntry.value
-				updateCache = false
-				break
+				inCache = true
+				return tokenValue, inCache
 			} else {
-				updateCache = true
+				inCache = false
 			}
 		} else {
-			updateCache = true
+			inCache = false
 		}
 	}
-	return tokenValue, updateCache
+	return tokenValue, inCache
 }
 
 func DateEqual(date1, date2 time.Time) bool {
@@ -913,35 +913,38 @@ func GetPriceAndUpdateCache(cache *Cache, date time.Time, networkDetails *Networ
 	cache.Lock()
 	var err error
 	tokenValue, inCache := cache.GetTokenValue(cache.cache[networkDetails.Token], date)
-	if !inCache {
+	if inCache != true {
 		tokenValue, err = networkDetails.getPrice(date)
 	}
 	cache.Unlock()
 	if err != nil {
 		fmt.Printf("Failed to get price of %s from Coin Gecko. Err: %s\n", networkDetails.Token, err.Error())
 	}
+	cache.Add(networkDetails.Token, tokenValue, date)
 
 	// adjust the slice of cache entries so that we keep the last ten queries from the Coin Gecko API
-	cacheEntries := cache.cache[networkDetails.Token]
-	if len(cacheEntries) == 10 {
-		cache.AdjustCache(networkDetails.Token, tokenValue, date)
-	} else {
-		cache.Add(networkDetails.Token, tokenValue, date)
-	}
+	//if len(cache.cache[networkDetails.Token]) == 10 {
+	//	cache.AdjustCache(networkDetails.Token, tokenValue, date)
+	//} else {
+	//	cache.Add(networkDetails.Token, tokenValue, date)
+	//}
 
 	return tokenValue
 }
 
+// If not supported or cant be fetched from CoinGecko return value is 0
 func GetTokenValue(coinGeckoData *CoinGeckoData, feeDenom string, cache *Cache, date time.Time) float64 {
-	var tokenValue float64
+	var (
+		tokenValue float64
+		inCache    bool
+	)
 	if val, exists := coinGeckoData.Networks[feeDenom]; exists {
 		// attempt to use cached token value if it exists, and it is from the same date.
 		// if the data has not been cached or newer data is needed query from CoinGecko API
-		var inCache bool
 		if cacheEntries, exists := cache.cache[feeDenom]; exists {
 			tokenValue, inCache = cache.GetTokenValue(cacheEntries, date)
 
-			if !inCache {
+			if inCache != true {
 				tokenValue = GetPriceAndUpdateCache(cache, date, val)
 			}
 		} else {
