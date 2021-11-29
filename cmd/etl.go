@@ -910,13 +910,11 @@ func DateEqual(date1, date2 time.Time) bool {
 }
 
 func GetPriceAndUpdateCache(cache *Cache, date time.Time, networkDetails *NetworkDetails) float64 {
-	cache.Lock()
 	var err error
 	tokenValue, inCache := cache.GetTokenValue(cache.cache[networkDetails.Token], date)
 	if inCache != true {
 		tokenValue, err = networkDetails.getPrice(date)
 	}
-	cache.Unlock()
 	if err != nil {
 		fmt.Printf("Failed to get price of %s from Coin Gecko. Err: %s\n", networkDetails.Token, err.Error())
 	}
