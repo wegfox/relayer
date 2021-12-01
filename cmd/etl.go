@@ -512,14 +512,16 @@ func handleMsg(c *relayer.Chain, msg sdk.Msg, msgIndex int, height int64, hash [
 		done := c.UseSDKContext()
 
 		denom := m.Token.Denom
-		if strings.Contains(denom, "ibc/") {
-			denomRes, err := c.QueryDenomTrace(strings.Trim(denom, "ibc/"))
-			if err != nil {
-				fmt.Printf("Error querying denom trace %s. Err: %s \n", denom, err.Error())
-			} else {
-				denom = denomRes.DenomTrace.BaseDenom
-			}
-		}
+
+		// TODO figure out why this causes deadlocks in indexer
+		//if strings.Contains(denom, "ibc/") {
+		//	denomRes, err := c.QueryDenomTrace(strings.Trim(denom, "ibc/"))
+		//	if err != nil {
+		//		fmt.Printf("Error querying denom trace %s. Err: %s \n", denom, err.Error())
+		//	} else {
+		//		denom = denomRes.DenomTrace.BaseDenom
+		//	}
+		//}
 
 		err := insertMsgTransferRow(hash, denom, m.SourceChannel, m.Route(), m.Token.Amount.String(), m.Sender,
 			m.GetSigners()[0].String(), m.Receiver, m.SourcePort, msgIndex, db)
@@ -919,7 +921,6 @@ type priceHistory struct {
 }
 
 func buildCoinGeckoData(fileName string) *CoinGeckoData {
-	// Parse coin-gecko.yaml & build NetworkDetails slice
 	networkDetails := &CoinGeckoData{Networks: make(map[string]*NetworkDetails)}
 	file, err := ioutil.ReadFile(path.Join(".", fileName))
 	if err != nil {
