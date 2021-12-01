@@ -479,7 +479,6 @@ func getTokenValues(cgd *CoinGeckoData, db *sql.DB) error {
 				fmt.Printf("[%s - %s] - failed to insert token_value. Err: %s \n", asset.Token, d.Format("2006-01-02"), err.Error())
 			}
 		}
-		return nil
 	}
 	return nil
 }
