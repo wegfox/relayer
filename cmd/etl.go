@@ -49,14 +49,15 @@ func etlCmd() *cobra.Command {
 
 	cmd.AddCommand(
 		extractCmd(),
-		qos(),
-		transferAmounts(),
+		qosCmd(),
+		transferAmountsCmd(),
+		tokenValuesCmd(),
 	)
 
 	return cmd
 }
 
-func transferAmounts() *cobra.Command {
+func transferAmountsCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "transfer-amounts [path]",
 		Aliases: []string{"t"},
@@ -147,7 +148,7 @@ $ %s e t osmoterra --start YYYY-MM-DD HH:MM:SS`,
 	return cmd
 }
 
-func qos() *cobra.Command {
+func qosCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "quality-of-servce [path]",
 		Aliases: []string{"qos"},
@@ -259,6 +260,45 @@ $ %s etl qos hubjuno --start YYYY-MM-DD HH:MM:SS`,
 	return cmd
 }
 
+func tokenValuesCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:     "token-values",
+		Aliases: []string{""},
+		Short:   "pull price data from Coin Gecko's API for all tokens in a specified file and store in db",
+		Args:    cobra.NoArgs,
+		Example: strings.TrimSpace(fmt.Sprintf(`
+$ %s token-values --file coingecko.yaml -c "host=127.0.0.1 port=5432 user=anon dbname=relayer sslmode=disable"
+$ %s tv --conn "host=127.0.0.1 port=5432 user=anon dbname=relayer sslmode=disable"
+$ %s values -f coingecko.yaml`,
+			appName, appName, appName,
+		)),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			const driverName = "postgres"
+
+			connString, _ := cmd.Flags().GetString("conn")
+			fmt.Printf("Connecting to database with conn string: %s \n", connString)
+			db, err := connectToDatabase(driverName, connString)
+			if err != nil {
+				return err
+			}
+			defer db.Close()
+			fmt.Println("Successfully connected to db instance.")
+
+			if err = createTables(db); err != nil {
+				return err
+			}
+
+			fileName, _ := cmd.Flags().GetString("file")
+			coinGeckoData := buildCoinGeckoData(fileName)
+			return getTokenValues(coinGeckoData, db)
+		},
+	}
+
+	cmd.Flags().StringP("file", "f", "coin-gecko.yaml", "file with network/token details for querying Coin Gecko API")
+	cmd.Flags().StringP("conn", "c", "host=127.0.0.1 port=5432 user=anon dbname=relayer sslmode=disable", "database connection string")
+	return cmd
+}
+
 func extractCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "extract [chain-id]",
@@ -321,10 +361,6 @@ func queryBlocks(chain *relayer.Chain, blocks []int64, db *sql.DB) error {
 	)
 	failedBlocks := make([]int64, 0)
 	sem := make(chan struct{}, 100)
-	coinGeckoData := buildCoinGeckoData()
-	cache := &Cache{
-		cache: make(map[string][]*CacheEntry),
-	}
 
 	for _, h := range blocks {
 		h := h
@@ -354,7 +390,7 @@ func queryBlocks(chain *relayer.Chain, blocks []int64, db *sql.DB) error {
 			}
 
 			if block != nil {
-				parseTxs(chain, block, h, db, coinGeckoData, cache)
+				parseTxs(chain, block, h, db)
 			}
 
 			<-sem
@@ -370,7 +406,7 @@ func queryBlocks(chain *relayer.Chain, blocks []int64, db *sql.DB) error {
 	return nil
 }
 
-func parseTxs(chain *relayer.Chain, block *coretypes.ResultBlock, h int64, db *sql.DB, coinGeckoData *CoinGeckoData, cache *Cache) {
+func parseTxs(chain *relayer.Chain, block *coretypes.ResultBlock, h int64, db *sql.DB) {
 	for i, tx := range block.Block.Data.Txs {
 		sdkTx, err := chain.Encoding.TxConfig.TxDecoder()(tx)
 		if err != nil {
@@ -387,53 +423,65 @@ func parseTxs(chain *relayer.Chain, block *coretypes.ResultBlock, h int64, db *s
 
 		fee := sdkTx.(sdk.FeeTx)
 		var feeAmount, feeDenom string
-		tokenValue := float64(0)
 
 		if len(fee.GetFee()) == 0 {
 			feeAmount = "0"
 			feeDenom = ""
-			tokenValue = 0
 		} else {
 			feeAmount = fee.GetFee()[0].Amount.String()
 			feeDenom = fee.GetFee()[0].Denom
-			tokenValue = GetTokenValue(coinGeckoData, feeDenom, cache, block.Block.Time)
 		}
 
 		if txRes.TxResult.Code > 0 {
 			log := fmt.Sprintf("{\"error\":\"%s\"}", txRes.TxResult.Log)
 			err = insertTxRow(tx.Hash(), chain.ChainID, log, feeAmount, feeDenom, h, txRes.TxResult.GasUsed,
-				txRes.TxResult.GasWanted, block.Block.Time, db, txRes.TxResult.Code, tokenValue)
+				txRes.TxResult.GasWanted, block.Block.Time, db, txRes.TxResult.Code)
 
 			logTxInsertion(err, i, len(sdkTx.GetMsgs()), len(block.Block.Data.Txs), block.Block.Height)
-
-			if err != nil {
-				err = updateTxRow(tx.Hash(), db, tokenValue)
-				if err != nil {
-					fmt.Printf("Failed to update tx. Index: %d Height: %d Err: %s \n", i, block.Block.Height, err.Error())
-				} else {
-					fmt.Printf("[Height - %d] Successfully updated tx. \n", block.Block.Height)
-				}
-			}
 		} else {
 			err = insertTxRow(tx.Hash(), chain.ChainID, txRes.TxResult.Log, feeAmount, feeDenom, h, txRes.TxResult.GasUsed,
-				txRes.TxResult.GasWanted, block.Block.Time, db, txRes.TxResult.Code, tokenValue)
+				txRes.TxResult.GasWanted, block.Block.Time, db, txRes.TxResult.Code)
 
 			logTxInsertion(err, i, len(sdkTx.GetMsgs()), len(block.Block.Data.Txs), block.Block.Height)
-
-			if err != nil {
-				err = updateTxRow(tx.Hash(), db, tokenValue)
-				if err != nil {
-					fmt.Printf("Failed to update tx. Index: %d Height: %d Err: %s \n", i, block.Block.Height, err.Error())
-				} else {
-					fmt.Printf("[Height - %d] Successfully updated tx. \n", block.Block.Height)
-				}
-			}
 		}
 
 		for msgIndex, msg := range sdkTx.GetMsgs() {
-			handleMsg(chain, msg, msgIndex, block.Block.Height, tx.Hash(), db, coinGeckoData, block.Block.Time, cache)
+			handleMsg(chain, msg, msgIndex, block.Block.Height, tx.Hash(), db)
 		}
 	}
+}
+
+func getTokenValues(cgd *CoinGeckoData, db *sql.DB) error {
+	for _, asset := range cgd.Networks {
+		var startDate time.Time
+		endDate := time.Now()
+
+		// 	get last saved date for token in the token_values table
+		// 	if there is no saved date, use the oldest date in the database
+		startDate, err := getLatestTokenValueDate(asset.Token, db)
+		if startDate.IsZero() || err != nil {
+			startDate, err = getOldestBlockTime(db)
+			if startDate.IsZero() || err != nil {
+				return fmt.Errorf("[%s] - failed to get oldest block_time value from txs table in DB \n", asset.Token)
+			}
+		}
+
+		// 	for every day between startDate and endDate, fetch the token value from Coin Gecko and store in DB
+		for d := startDate; d.After(endDate) == false; d = d.AddDate(0, 0, 1) {
+			tokenValue, err := asset.getPrice(d)
+			if err != nil {
+				fmt.Printf("[%s - %s] - failed to get price data from Coin Gecko API. Err: %s \n", asset.Token, d.Format("2006-01-02"), err.Error())
+			} else {
+				fmt.Printf("[%s - %s] - successfully fetched token price from Coin Gecko API! \n", asset.Token, d.Format("2006-01-02"))
+			}
+			err = insertTokenValue(asset.Token, d, tokenValue, db)
+			if err != nil {
+				fmt.Printf("[%s - %s] - failed to insert token_value. Err: %s \n", asset.Token, d.Format("2006-01-02"), err.Error())
+			}
+		}
+		return nil
+	}
+	return nil
 }
 
 func connectToDatabase(driver, connString string) (*sql.DB, error) {
@@ -459,17 +507,11 @@ func makeBlockArray(src *relayer.Chain, srcStart int64) ([]int64, error) {
 	return srcBlocks, nil
 }
 
-func handleMsg(c *relayer.Chain, msg sdk.Msg, msgIndex int, height int64, hash []byte, db *sql.DB, coinGeckoData *CoinGeckoData, time time.Time, cache *Cache) {
+func handleMsg(c *relayer.Chain, msg sdk.Msg, msgIndex int, height int64, hash []byte, db *sql.DB) {
 	switch m := msg.(type) {
 	case *transfertypes.MsgTransfer:
 		done := c.UseSDKContext()
 
-		var (
-			tokenValue float64
-			err        error
-		)
-
-		tokenValue = 0
 		denom := m.Token.Denom
 		if strings.Contains(denom, "ibc/") {
 			denomRes, err := c.QueryDenomTrace(strings.Trim(denom, "ibc/"))
@@ -477,23 +519,14 @@ func handleMsg(c *relayer.Chain, msg sdk.Msg, msgIndex int, height int64, hash [
 				fmt.Printf("Error querying denom trace %s. Err: %s \n", denom, err.Error())
 			} else {
 				denom = denomRes.DenomTrace.BaseDenom
-				tokenValue = GetTokenValue(coinGeckoData, denom, cache, time)
 			}
-		} else {
-			tokenValue = GetTokenValue(coinGeckoData, denom, cache, time)
 		}
 
-		err = insertMsgTransferRow(hash, denom, m.SourceChannel, m.Route(), m.Token.Amount.String(), m.Sender,
-			m.GetSigners()[0].String(), m.Receiver, m.SourcePort, msgIndex, db, tokenValue)
-
+		err := insertMsgTransferRow(hash, denom, m.SourceChannel, m.Route(), m.Token.Amount.String(), m.Sender,
+			m.GetSigners()[0].String(), m.Receiver, m.SourcePort, msgIndex, db)
 		if err != nil {
+			// TODO update old data with denom traces parsed
 			fmt.Printf("Failed to insert MsgTransfer. Index: %d Height: %d Err: %s \n", msgIndex, height, err.Error())
-			err = updateTransferRow(hash, denom, db, tokenValue, msgIndex)
-			if err != nil {
-				fmt.Printf("Failed to update MsgTransfer. Index: %d Height: %d Err: %s \n", msgIndex, height, err.Error())
-			} else {
-				fmt.Printf("[Height - %d] Successfully updated MsgTransfer. \n", height)
-			}
 		}
 
 		done()
@@ -541,7 +574,6 @@ func createTables(db *sql.DB) error {
 		"code INT NOT NULL, " +
 		"fee_amount TEXT, " +
 		"fee_denom TEXT, " +
-		"token_value NUMERIC NOT NULL," +
 		"gas_used BIGINT NOT NULL," +
 		"gas_wanted BIGINT NOT NULL" +
 		")"
@@ -554,7 +586,6 @@ func createTables(db *sql.DB) error {
 		"receiver TEXT NOT NULL," +
 		"amount TEXT NOT NULL," +
 		"denom TEXT NOT NULL," +
-		"token_value NUMERIC NOT NULL," +
 		"src_chan TEXT NOT NULL," +
 		"src_port TEXT NOT NULL," +
 		"route TEXT NOT NULL," +
@@ -598,7 +629,14 @@ func createTables(db *sql.DB) error {
 		"FOREIGN KEY (tx_hash) REFERENCES txs(hash) ON DELETE CASCADE" +
 		")"
 
-	tables := []string{txs, transfer, recvpacket, timeout, acks}
+	tokenValues := "CREATE TABLE IF NOT EXISTS token_values (" +
+		"token_denom TEXT NOT NULL, " +
+		"date DATE NOT NULL, " +
+		"value NUMERIC NOT NULL, " +
+		"PRIMARY KEY (token_denom, date)" +
+		")"
+
+	tables := []string{txs, transfer, recvpacket, timeout, acks, tokenValues}
 	for _, table := range tables {
 		if _, err := db.Exec(table); err != nil {
 			return err
@@ -607,16 +645,16 @@ func createTables(db *sql.DB) error {
 	return nil
 }
 
-func insertTxRow(hash []byte, chainid, log, feeAmount, feeDenom string, height, gasUsed, gasWanted int64, timestamp time.Time, db *sql.DB, code uint32, tokenValue float64) error {
-	query := "INSERT INTO txs(hash, block_time, chainid, block_height, raw_log, code, gas_used, gas_wanted, fee_amount, fee_denom, token_value) " +
-		"VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)"
+func insertTxRow(hash []byte, chainid, log, feeAmount, feeDenom string, height, gasUsed, gasWanted int64, timestamp time.Time, db *sql.DB, code uint32) error {
+	query := "INSERT INTO txs(hash, block_time, chainid, block_height, raw_log, code, gas_used, gas_wanted, fee_amount, fee_denom) " +
+		"VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)"
 	stmt, err := db.Prepare(query)
 	if err != nil {
 		return fmt.Errorf("Fail to create query for new tx. Err: %s \n", err.Error())
 	}
 	defer stmt.Close()
 
-	_, err = stmt.Exec(hash, timestamp, chainid, height, log, code, gasUsed, gasWanted, feeAmount, feeDenom, tokenValue)
+	_, err = stmt.Exec(hash, timestamp, chainid, height, log, code, gasUsed, gasWanted, feeAmount, feeDenom)
 	if err != nil {
 		return fmt.Errorf("Fail to execute query for new tx. Err: %s \n", err.Error())
 	}
@@ -624,16 +662,16 @@ func insertTxRow(hash []byte, chainid, log, feeAmount, feeDenom string, height, 
 	return nil
 }
 
-func insertMsgTransferRow(hash []byte, denom, srcChan, route, amount, sender, signer, receiver, port string, msgIndex int, db *sql.DB, tokenValue float64) error {
-	query := "INSERT INTO msg_transfer(tx_hash, msg_index, amount, denom, src_chan, route, signer, sender, receiver, src_port, token_value) " +
-		"VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)"
+func insertMsgTransferRow(hash []byte, denom, srcChan, route, amount, sender, signer, receiver, port string, msgIndex int, db *sql.DB) error {
+	query := "INSERT INTO msg_transfer(tx_hash, msg_index, amount, denom, src_chan, route, signer, sender, receiver, src_port) " +
+		"VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)"
 	stmt, err := db.Prepare(query)
 	if err != nil {
 		return fmt.Errorf("Fail to create query for MsgTransfer. Err: %s ", err.Error())
 	}
 	defer stmt.Close()
 
-	_, err = stmt.Exec(hash, msgIndex, amount, denom, srcChan, route, signer, sender, receiver, port, tokenValue)
+	_, err = stmt.Exec(hash, msgIndex, amount, denom, srcChan, route, signer, sender, receiver, port)
 	if err != nil {
 		return fmt.Errorf("Fail to execute query for MsgTransfer. Err: %s ", err.Error())
 	}
@@ -692,23 +730,30 @@ func insertMsgAckRow(hash []byte, signer, srcChan, dstChan, srcPort, dstPort str
 	return nil
 }
 
-func updateTxRow(hash []byte, db *sql.DB, tokenValue float64) error {
-	query := "UPDATE txs SET token_value = $1 WHERE hash = $2"
-	_, err := db.Exec(query, tokenValue, hash)
+func insertTokenValue(denom string, date time.Time, price float64, db *sql.DB) error {
+	query := "INSERT INTO token_values(token_denom, date, value) VALUES ($1, $2, $3)"
+	stmt, err := db.Prepare(query)
 	if err != nil {
-		return fmt.Errorf("Fail to execute query for updating tx. Err: %s \n", err.Error())
+		return fmt.Errorf("Fail to create query for token_values. Err: %s \n", err.Error())
 	}
+	defer stmt.Close()
+
+	_, err = stmt.Exec(denom, date, price)
+	if err != nil {
+		return fmt.Errorf("Fail to execute query for token_values. Err: %s \n", err.Error())
+	}
+
 	return nil
 }
 
-func updateTransferRow(hash []byte, denom string, db *sql.DB, tokenValue float64, msgIndex int) error {
-	query := "UPDATE msg_transfer SET token_value = $1, denom = $2 WHERE tx_hash = $3 AND msg_index = $4"
-	_, err := db.Exec(query, tokenValue, denom, hash, msgIndex)
-	if err != nil {
-		return fmt.Errorf("Fail to execute query for updating msg_transfer. Err: %s ", err.Error())
-	}
-	return nil
-}
+//func updateTransferRow(hash []byte, denom string, db *sql.DB, tokenValue float64, msgIndex int) error {
+//	query := "UPDATE msg_transfer SET token_value = $1, denom = $2 WHERE tx_hash = $3 AND msg_index = $4"
+//	_, err := db.Exec(query, tokenValue, denom, hash, msgIndex)
+//	if err != nil {
+//		return fmt.Errorf("Fail to execute query for updating msg_transfer. Err: %s ", err.Error())
+//	}
+//	return nil
+//}
 
 func getLastStoredBlock(chainId string, db *sql.DB) (int64, error) {
 	var height int64
@@ -717,6 +762,24 @@ func getLastStoredBlock(chainId string, db *sql.DB) (int64, error) {
 		return 1, err
 	}
 	return height, nil
+}
+
+func getLatestTokenValueDate(tokenDenom string, db *sql.DB) (time.Time, error) {
+	var lastUpdated time.Time
+	err := db.QueryRow("SELECT date FROM token_value WHERE token_denom = $1", tokenDenom).Scan(&lastUpdated)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return lastUpdated, nil
+}
+
+func getOldestBlockTime(db *sql.DB) (time.Time, error) {
+	var oldestTime time.Time
+	err := db.QueryRow("SELECT block_time FROM txs ORDER BY block_time FETCH FIRST 1 ROW ONLY").Scan(&oldestTime)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return oldestTime, nil
 }
 
 func getTransfersForPeriod(chainId, channel string, db *sql.DB, start, end time.Time) (int64, error) {
@@ -839,124 +902,6 @@ type CoinGeckoData struct {
 	Networks map[string]*NetworkDetails `yaml:"networks"`
 }
 
-type Cache struct {
-	sync.Mutex
-	cache map[string][]*CacheEntry
-}
-
-type CacheEntry struct {
-	value float64
-	time  time.Time
-}
-
-func (c *Cache) AdjustCache(token string, tokenValue float64, date time.Time) {
-	cacheEntries := c.cache[token]
-	for i, _ := range cacheEntries {
-		if i == len(cacheEntries)-1 {
-			c.Lock()
-			cacheEntries[i] = &CacheEntry{
-				value: tokenValue,
-				time:  date,
-			}
-			c.Unlock()
-		} else {
-			c.Lock()
-			cacheEntries[i] = cacheEntries[i+1]
-			c.Unlock()
-		}
-	}
-}
-
-func (c *Cache) Add(token string, tokenValue float64, date time.Time) {
-	cacheEntries := c.cache[token]
-	for _, cacheEntry := range cacheEntries {
-		if cacheEntry == nil {
-			c.Lock()
-			cacheEntry = &CacheEntry{
-				value: tokenValue,
-				time:  date,
-			}
-			c.Unlock()
-			break
-		}
-	}
-}
-
-func (c *Cache) GetTokenValue(cacheEntries []*CacheEntry, date time.Time) (float64, bool) {
-	var (
-		tokenValue float64
-		inCache    bool
-	)
-	for _, cacheEntry := range cacheEntries {
-		if cacheEntry != nil {
-			if DateEqual(date, cacheEntry.time) {
-				tokenValue = cacheEntry.value
-				inCache = true
-				return tokenValue, inCache
-			} else {
-				inCache = false
-			}
-		} else {
-			inCache = false
-		}
-	}
-	return tokenValue, inCache
-}
-
-func DateEqual(date1, date2 time.Time) bool {
-	y1, m1, d1 := date1.Date()
-	y2, m2, d2 := date2.Date()
-	return y1 == y2 && m1 == m2 && d1 == d2
-}
-
-func GetPriceAndUpdateCache(cache *Cache, date time.Time, networkDetails *NetworkDetails) float64 {
-	var err error
-	tokenValue, inCache := cache.GetTokenValue(cache.cache[networkDetails.Token], date)
-	if inCache != true {
-		tokenValue, err = networkDetails.getPrice(date)
-	}
-	if err != nil {
-		fmt.Printf("Failed to get price of %s from Coin Gecko. Err: %s\n", networkDetails.Token, err.Error())
-	}
-	cache.Add(networkDetails.Token, tokenValue, date)
-
-	// adjust the slice of cache entries so that we keep the last ten queries from the Coin Gecko API
-	//if len(cache.cache[networkDetails.Token]) == 10 {
-	//	cache.AdjustCache(networkDetails.Token, tokenValue, date)
-	//} else {
-	//	cache.Add(networkDetails.Token, tokenValue, date)
-	//}
-
-	return tokenValue
-}
-
-// If not supported or cant be fetched from CoinGecko return value is 0
-func GetTokenValue(coinGeckoData *CoinGeckoData, feeDenom string, cache *Cache, date time.Time) float64 {
-	var (
-		tokenValue float64
-		inCache    bool
-	)
-	if val, exists := coinGeckoData.Networks[feeDenom]; exists {
-		// attempt to use cached token value if it exists, and it is from the same date.
-		// if the data has not been cached or newer data is needed query from CoinGecko API
-		if cacheEntries, exists := cache.cache[feeDenom]; exists {
-			tokenValue, inCache = cache.GetTokenValue(cacheEntries, date)
-
-			if inCache != true {
-				tokenValue = GetPriceAndUpdateCache(cache, date, val)
-			}
-		} else {
-			cache.Lock()
-			if _, ok := cache.cache[feeDenom]; !ok {
-				cache.cache[feeDenom] = make([]*CacheEntry, 10)
-			}
-			cache.Unlock()
-			tokenValue = GetPriceAndUpdateCache(cache, date, val)
-		}
-	}
-	return tokenValue
-}
-
 type ErrRateLimitExceeded error
 
 type priceHistory struct {
@@ -974,9 +919,7 @@ type priceHistory struct {
 	} `json:"market_data"`
 }
 
-func buildCoinGeckoData() *CoinGeckoData {
-	const fileName = "coin-gecko.yaml"
-
+func buildCoinGeckoData(fileName string) *CoinGeckoData {
 	// Parse coin-gecko.yaml & build NetworkDetails slice
 	networkDetails := &CoinGeckoData{Networks: make(map[string]*NetworkDetails)}
 	file, err := ioutil.ReadFile(path.Join(".", fileName))
