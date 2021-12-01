@@ -24,7 +24,6 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
-	"path"
 	"strings"
 	"sync"
 	"time"
@@ -922,7 +921,7 @@ type priceHistory struct {
 
 func buildCoinGeckoData(fileName string) *CoinGeckoData {
 	networkDetails := &CoinGeckoData{Networks: make(map[string]*NetworkDetails)}
-	file, err := ioutil.ReadFile(path.Join(".", fileName))
+	file, err := ioutil.ReadFile(fileName)
 	if err != nil {
 		fmt.Println("Error reading file:", err)
 		os.Exit(1)
