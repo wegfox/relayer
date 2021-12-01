@@ -266,10 +266,9 @@ func tokenValuesCmd() *cobra.Command {
 		Short:   "pull price data from Coin Gecko's API for all tokens in a specified file and store in db",
 		Args:    cobra.NoArgs,
 		Example: strings.TrimSpace(fmt.Sprintf(`
-$ %s token-values --file coingecko.yaml -c "host=127.0.0.1 port=5432 user=anon dbname=relayer sslmode=disable"
-$ %s tv --conn "host=127.0.0.1 port=5432 user=anon dbname=relayer sslmode=disable"
-$ %s values -f coingecko.yaml`,
-			appName, appName, appName,
+$ %s etl token-values --file coingecko.yaml -c "host=127.0.0.1 port=5432 user=anon dbname=relayer sslmode=disable"
+$ %s etl token-values --conn "host=127.0.0.1 port=5432 user=anon dbname=relayer sslmode=disable"`,
+			appName, appName,
 		)),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			const driverName = "postgres"
@@ -766,11 +765,11 @@ func getLastStoredBlock(chainId string, db *sql.DB) (int64, error) {
 
 func getLatestTokenValueDate(tokenDenom string, db *sql.DB) (time.Time, error) {
 	var lastUpdated time.Time
-	err := db.QueryRow("SELECT date FROM token_value WHERE token_denom = $1", tokenDenom).Scan(&lastUpdated)
+	err := db.QueryRow("SELECT date FROM token_values WHERE token_denom = $1 ORDER BY date DESC LIMIT 1", tokenDenom).Scan(&lastUpdated)
 	if err != nil {
 		return time.Time{}, err
 	}
-	return lastUpdated, nil
+	return lastUpdated.AddDate(0, 0, 1), nil
 }
 
 func getOldestBlockTime(db *sql.DB) (time.Time, error) {
